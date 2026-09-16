@@ -42,6 +42,14 @@
   // it. See fetch_europe.py.
   const EUROPE_URL = "data/europe.json";
   const MAX_STORIES = 5; // "the five most important topics"
+  // At most five stories a page, and no more than eight however good the day is.
+  // See capStories for what earns a slot past the fifth.
+  const MAX_STORIES_NOTABLE = 8;
+  // How many newsrooms have to have carried a story independently for it to be
+  // worth a sixth slot. Three is a low bar and still rare: across the whole last
+  // run only three stories cleared it, because most reach the pipeline through a
+  // single feed. See isNotable for why coverage and not significance.
+  const NOTABLE_OUTLETS = 3;
   const MAX_SECTION_STORIES = 5;
   const MAX_PER_LEAN = 2; // frames shown per lean; keeps the arrows from feeling endless
   // Rows shown per statistics table. A championship table is twenty rows nobody
@@ -982,21 +990,94 @@
     applyLeague(container, "ALL");
   }
 
+  /**
+   * At most five stories, and a few more only for the ones that earn it.
+   *
+   * A page is meant to be read. Ten cards is a scroll, and the thing being built
+   * here is a briefing — if it takes longer to get through than a coffee, it is
+   * the wrong length and gets skipped, which is the one outcome worse than
+   * missing a story.
+   *
+   * Two things extend it past five, and the second matters more than it looks:
+   *
+   *   Notability. A story the classifier called high significance, or that three
+   *   or more newsrooms carried independently, is worth a slot.
+   *
+   *   Representation. The last story of an interest is never dropped to make the
+   *   count. Not a nicety: capping Sports at five once silently deleted EuroLeague
+   *   and the international game, because a flat cap takes whatever comes first
+   *   and the interests at the end of the round-robin vanish. That was a real bug
+   *   and it is why the beats are ordered the way they are. A page that hides a
+   *   whole competition to save three cards is not shorter, it is missing.
+   *
+   * The beats are built so that five can cover everything: their round-robins
+   * walk a handful of coarse buckets rather than every interest they tag with, so
+   * the first five stories already represent each part of the subject.
+   */
+  function capStories(stories) {
+    if (stories.length <= MAX_STORIES) return stories;
+
+    const kept = stories.slice(0, MAX_STORIES);
+    const interests = new Set(
+      kept.map((story) => story.interest).filter(Boolean),
+    );
+
+    for (const story of stories.slice(MAX_STORIES)) {
+      if (kept.length >= MAX_STORIES_NOTABLE) break;
+      const interest = story.interest;
+      // Only ever the *first* story of an interest not yet on the page. A second
+      // rescue of the same interest would not be representation, it would be a
+      // loophole that lets any interest exceed the cap by publishing more.
+      const unreached = interest && !interests.has(interest);
+      if (unreached || isNotable(story)) {
+        kept.push(story);
+        if (interest) interests.add(interest);
+      }
+    }
+
+    return kept;
+  }
+
+  /**
+   * Did this one earn a slot past the fifth?
+   *
+   * Coverage only, and deliberately not significance. The rule was meant to be
+   * "very good ones or much covered ones" and the first attempt used the
+   * classifier's `high` tier for the first half of that. It does not work: 70 of
+   * 231 stories come back high, and fetch_europe pre-filters its own rows to high,
+   * so on that page every story was exceptional and the cap moved from five to
+   * eight without anyone deciding anything.
+   *
+   * Three newsrooms independently carrying the same story is a fact about the
+   * world rather than an opinion about it, and it is rare: three stories in the
+   * whole of the last run. On a normal morning this page shows five stories.
+   */
+  function isNotable(story) {
+    // Two shapes for the same idea: Europe carries `outlet_count` and the beats
+    // carry the outlets themselves.
+    const outlets = Number(
+      story.outlet_count || (story.outlets || []).length || 0,
+    );
+    return outlets >= NOTABLE_OUTLETS;
+  }
+
   /** Render one page's cards into its container. Returns how many it drew. */
   function renderSection(section, rows, container, statsBlocks) {
     let stories;
     if (section.category) {
       stories = rankSections(rows, section.category);
     } else if (section.presorted) {
-      // Deliberately no cap. fetch_sports.py already ranked this page and capped
-      // it, and it is the better judge: its round-robin balances the interests, so
-      // applying a second, smaller cap here silently deleted whole interests —
-      // EuroLeague and the international game were what got cut when this page
-      // capped at 5 and the file held 8.
+      // Uncapped here on purpose, then capped below like everything else. The
+      // beats already ranked these and balanced them across their buckets, so the
+      // order is the pipeline's business; how many of them a page shows is this
+      // file's. Applying a flat slice here instead is what once deleted
+      // EuroLeague from Sports — see capStories.
       stories = rows.filter((row) => row.title && row.url);
     } else {
-      stories = rankStories(rows).slice(0, MAX_STORIES);
+      stories = rankStories(rows);
     }
+
+    stories = capStories(stories);
 
     if (!stories.length) {
       showMessage(

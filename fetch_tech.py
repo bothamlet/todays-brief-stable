@@ -91,7 +91,7 @@ PRIMARY_LOOKBACK_HOURS = 72
 # supposed to go deeper, and a beat file that caps at five throws away the
 # narrow interests — a chips story never beats a model release for one of five
 # slots, but it wins the slot it is alone in.
-MAX_STORIES = 10
+MAX_STORIES = 8
 MAX_PER_INTEREST = 2
 
 # Per feed, before anything else. OpenAI's archive is 1,198 items and Hugging
@@ -289,6 +289,35 @@ INTERESTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "ministry",
         ),
     ),
+)
+
+# What the page represents, as opposed to what its cards are tagged with.
+#
+# The tags are for the reader and are specific — seven of them, because "Chips &
+# compute" and "Policy & law" are different things to be told. The walk is for
+# the page and is coarser, because a page is five stories long and seven
+# interests cannot fit in five. Five themes can.
+#
+# Merging is not a compromise here. A model release and a paper are both AI, and
+# ranking inside the merged bucket still puts the release first — that is what
+# source_tier is for. Business and policy are both the industry around the
+# technology, and whichever of the two is stronger that morning takes the slot.
+BUCKETS: dict[str, str] = {
+    "models": "ai",
+    "research": "ai",
+    "chips": "infrastructure",
+    "safety": "safety",
+    "products": "products",
+    "business": "industry",
+    "policy": "industry",
+}
+
+BUCKET_ORDER: tuple[str, ...] = (
+    "ai",
+    "infrastructure",
+    "safety",
+    "products",
+    "industry",
 )
 
 # Note the trailing boundary: there is none, and that is deliberate.
@@ -501,10 +530,15 @@ def select(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     This is the fix for the actual complaint. Flat ranking by recency gave a page
     of whatever the wire services had written most about, and what wire services
     write most about is legislation.
+
+    The walk is over themes rather than the seven interests the cards are tagged
+    with — see BUCKETS. The tag tells the reader what a story is; the walk decides
+    what the page represents, and a page is five stories long.
     """
     buckets: dict[str, list[dict[str, Any]]] = {}
     for article in articles:
-        buckets.setdefault(str(article.get("interest")), []).append(article)
+        theme = BUCKETS.get(str(article.get("interest")), "industry")
+        buckets.setdefault(theme, []).append(article)
 
     for rows in buckets.values():
         # newest_first RETURNS a sorted list; calling it as a statement does
@@ -517,7 +551,7 @@ def select(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ordered.sort(key=source_tier)
         rows[:] = ordered[: MAX_PER_INTEREST * 5]
 
-    order = [key for key, _label, _kw in INTERESTS]
+    order = list(BUCKET_ORDER)
     chosen: list[dict[str, Any]] = []
     taken: Counter[str] = Counter()
     depth = 0

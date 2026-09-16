@@ -823,12 +823,16 @@ class TestTechBeat(unittest.TestCase):
             1,
         )
 
-    def test_round_robin_stops_one_interest_taking_the_page(self) -> None:
+    def test_round_robin_stops_one_theme_taking_the_page(self) -> None:
         """The complaint, as a test.
 
-        Fifty stories on one interest against one each on six others. Flat ranking
-        by recency returns fifty of the first and none of the rest, which is
-        precisely how this page came to be about legislation.
+        Fifty stories on one theme against one each on four others. Flat ranking by
+        recency returns fifty of the first and none of the rest, which is precisely
+        how this page came to be about legislation.
+
+        Asserted over themes rather than interests, because those are two different
+        jobs: the seven interests are what a card is tagged with, and the five
+        themes are what the page represents. Seven cannot fit in a page of five.
         """
         articles: list[dict[str, object]] = [
             {
@@ -839,25 +843,41 @@ class TestTechBeat(unittest.TestCase):
             }
             for i in range(50)
         ]
-        for key in ("models", "chips", "research", "safety", "products", "business"):
+        # One interest from each of the other four themes.
+        for interest in ("models", "chips", "safety", "products"):
             articles.append(
                 {
-                    "interest": key,
-                    "title": key,
-                    "url": f"https://example.com/{key}",
+                    "interest": interest,
+                    "title": interest,
+                    "url": f"https://example.com/{interest}",
                     "publishedAt": "2026-09-16T12:00:00+00:00",
                 }
             )
 
         chosen = self.tech.select(articles)
-        counts = Counter(str(a.get("interest")) for a in chosen)
+        themes = Counter(
+            self.tech.BUCKETS.get(str(a.get("interest")), "industry") for a in chosen
+        )
 
-        self.assertLessEqual(counts["policy"], self.tech.MAX_PER_INTEREST)
+        self.assertLessEqual(themes["industry"], self.tech.MAX_PER_INTEREST)
         self.assertLessEqual(len(chosen), self.tech.MAX_STORIES)
-        # And the quiet interests are not crowded out by the loud one.
-        for key in ("models", "chips", "research", "safety", "products", "business"):
+        # And the quiet themes are not crowded out by the loud one.
+        for theme in ("ai", "infrastructure", "safety", "products"):
+            with self.subTest(theme=theme):
+                self.assertEqual(themes[theme], 1)
+
+    def test_every_interest_belongs_to_a_theme_the_walk_visits(self) -> None:
+        """An interest with no bucket is silently dropped from the page.
+
+        The walk iterates BUCKET_ORDER, so a theme that exists in BUCKETS but not
+        there is never reached, and a bucket key with no interests in it is a slot
+        spent on nothing.
+        """
+        for key, _label, _kw in self.tech.INTERESTS:
             with self.subTest(interest=key):
-                self.assertEqual(counts[key], 1)
+                self.assertIn(key, self.tech.BUCKETS)
+                self.assertIn(self.tech.BUCKETS[key], self.tech.BUCKET_ORDER)
+        self.assertEqual(len(set(self.tech.BUCKETS.values())), len(self.tech.BUCKET_ORDER))
 
     def test_junk_filters_deals_and_film(self) -> None:
         junk = [

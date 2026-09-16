@@ -70,6 +70,16 @@ LOOKBACK_HOURS = 48
 MAX_STORIES = 10
 MAX_PER_INTEREST = 2
 
+# What the page represents, as opposed to what its cards are tagged with.
+#
+# The tags are for the reader and are specific: NBA · Lietuva, EuroLeague ·
+# Žalgiris, Formula 1. The walk is for the page and is coarse, because a page is
+# five stories long and four competitions fit in five. The empty string is the
+# general-basketball bucket — the international and national-team beats, whose
+# stories belong to no competition on this page and which the round-robin still
+# has to reach.
+COMPETITION_ORDER: tuple[str, ...] = ("NBA", "EUROLEAGUE", "F1", "")
+
 # --- What the page is about --------------------------------------------------
 # Order is priority: seen first gets the top slot, and the round-robin in
 # select() walks this order. Keywords are matched case-insensitively against
@@ -443,6 +453,12 @@ def collect() -> list[dict[str, Any]]:
             if not matched and fallback is None:
                 continue
             row["interest"], row["interest_label"] = key, label
+            # Written here rather than after selection. select() walks competitions
+            # and reads this field, so assigning it afterwards — which is where it
+            # lived first — gave every article an empty league, collapsed the
+            # round-robin to a single bucket, and cut the page from ten stories to
+            # two without raising anything.
+            row["league"] = league_for(key)
             row["via"] = "feed"
             kept.append(row)
 
@@ -470,6 +486,7 @@ def collect() -> list[dict[str, Any]]:
                 continue
 
             row["interest"], row["interest_label"] = key, label
+            row["league"] = league_for(key)  # see the note on the direct loop above
             row["via"] = "google"
             kept.append(row)
 
@@ -487,24 +504,35 @@ def collect() -> list[dict[str, Any]]:
 
 
 def select(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Pick and order the page: round-robin across interests, freshest first.
+    """Pick and order the page: round-robin across competitions, freshest first.
 
-    Round-robin rather than a flat sort, so one busy interest cannot take the
-    whole page. A flat sort on recency would fill it with NBA news on the days
-    the NBA is loud and show no F1 at all — the page is meant to cover the
-    interests, not to reflect which one had the busiest afternoon.
+    Round-robin rather than a flat sort, so one busy competition cannot take the
+    whole page. A flat sort on recency would fill it with NBA news on the days the
+    NBA is loud and show no F1 at all — the page is meant to cover the interests,
+    not to reflect which one had the busiest afternoon.
+
+    The walk is over *competitions*, not over the eight interests the cards are
+    tagged with. Those two things are not the same job: the tag tells the reader
+    what a story is about (NBA · Lietuva, EuroLeague · Žalgiris), while the walk
+    decides what the page represents, and a page is only five stories long. Four
+    competitions fit in five. Eight interests do not, and pretending otherwise is
+    how a cap quietly deleted EuroLeague.
     """
     buckets: dict[str, list[dict[str, Any]]] = {}
     for article in articles:
-        buckets.setdefault(str(article.get("interest")), []).append(article)
+        # The competition, falling back to the general-basketball bucket for the
+        # interests that belong to none — the international and national-team
+        # beats. That bucket is a real part of the page and gets its own slot.
+        key = str(article.get("league") or "")
+        buckets.setdefault(key, []).append(article)
 
-    for key, rows in buckets.items():
+    for rows in buckets.values():
         # Newest first, except that a story carrying a picture outranks one that is
         # merely newer. On Sports most stories have no picture at all — the Google
         # topic feeds cannot supply one — so ordering purely by recency put all the
         # text-only cards first and the photographs in a clump in the middle. This
-        # only ever reorders within one interest, so it cannot promote a story into
-        # a page it does not belong on.
+        # only ever reorders within one competition, so it cannot promote a story
+        # into a page it does not belong on.
         rows.sort(
             key=lambda a: (
                 bool(a.get("urlToImage")),
@@ -516,11 +544,10 @@ def select(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     chosen: list[dict[str, Any]] = []
     taken: dict[str, int] = {}
-    order = [key for key, _label, _kw in INTERESTS]
 
     depth = 0
     while len(chosen) < MAX_STORIES and depth < MAX_PER_INTEREST:
-        for key in order:
+        for key in COMPETITION_ORDER:
             if len(chosen) >= MAX_STORIES:
                 break
             if taken.get(key, 0) > depth:
@@ -575,11 +602,8 @@ def main() -> None:
 
     chosen = select(fresh)
 
-    # The tabs on the page filter on this, so it is written by the pipeline rather
-    # than guessed in the browser from the interest label — the label is for the
-    # reader and is free to be reworded without breaking the filters.
-    for article in chosen:
-        article["league"] = league_for(article.get("interest"))
+    # No league tagging here any more: it happens in collect(), because select()
+    # reads it. See the note there.
 
     # Only the items actually going on the page: this costs one page fetch each,
     # and a Google-sourced story is skipped because its link is a redirect that
