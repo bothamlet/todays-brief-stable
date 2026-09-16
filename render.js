@@ -29,6 +29,11 @@
   // Results and standings, above the sports cards — see fetch_stats.py. Separate
   // from the news file because it is a different shape: tables, not articles.
   const STATS_URL = "data/stats.json";
+  // The tech page has its own beat too — see fetch_tech.py. It reads the world
+  // roster for its policy coverage and its own sources for everything else,
+  // because a page built only from general news desks is a page about AI
+  // legislation rather than about AI.
+  const TECH_URL = "data/tech.json";
   // The Lietuva page has its own beat too — Lithuanian newsrooms, not Lithuania as
   // the world roster happens to report it. See fetch_lietuva.py.
   const LIETUVA_URL = "data/lietuva.json";
@@ -73,8 +78,12 @@
     {
       container: "techStories",
       title: "Tech",
-      url: SECTION_URL,
-      category: "Tech",
+      url: TECH_URL,
+      // Presorted, like Sports and Lietuva: fetch_tech.py already balanced the
+      // page across interests with a round-robin, and re-capping it here at five
+      // would undo that — the narrow interests are exactly the ones that lose a
+      // fight for a slot.
+      presorted: true,
     },
     {
       container: "sportsStories",

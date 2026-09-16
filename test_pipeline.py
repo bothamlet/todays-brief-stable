@@ -21,6 +21,7 @@ fixed and immediately re-broken while fixing something adjacent.
 from __future__ import annotations
 
 import unittest
+from collections import Counter
 from datetime import datetime, timezone
 import json
 
@@ -760,6 +761,145 @@ class TestTelegramMessage(unittest.TestCase):
         fields = self.tg.document_fields("123")
         self.assertNotIn("document", fields)
         self.assertEqual(fields.get("chat_id"), "123")
+
+
+class TestTechBeat(unittest.TestCase):
+    """The Tech page was rebuilt around one complaint, and these hold it up.
+
+    It read the world roster and returned "Congress is under pressure to act on
+    AI" and "Sanders and Bannon warn of AI dangers" — twenty-four stories about
+    AI, two of them about a thing anybody had made. The fix is a beat with its own
+    sources and a round-robin that no single angle can take.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import fetch_tech  # pyright: ignore[reportMissingImports]
+
+        cls.tech = fetch_tech
+
+    def test_a_labs_announcement_outranks_reporting(self) -> None:
+        release = {"source": "OpenAI", "title": "Introducing GPT-6 Astra"}
+        report = {"source": "Ars Technica", "title": "OpenAI announces GPT-6 Astra"}
+        self.assertLess(
+            self.tech.source_tier(release), self.tech.source_tier(report)
+        )
+
+    def test_reporting_outranks_a_labs_marketing(self) -> None:
+        """The finding that took two runs to see.
+
+        Ordered the other way, "Helping older adults use AI in everyday life" beat
+        Ars Technica for a slot — because it came from the lab, which looked like
+        primary sourcing and was really a publishing cadence. A lab's marketing
+        is neither news about something that exists nor independent.
+        """
+        marketing = {
+            "source": "OpenAI",
+            "title": "Helping older adults use AI in everyday life",
+        }
+        report = {"source": "Wired", "title": "OpenAI ships a new model"}
+        self.assertGreater(
+            self.tech.source_tier(marketing), self.tech.source_tier(report)
+        )
+
+    def test_a_labs_research_post_is_not_treated_as_marketing(self) -> None:
+        """Only the opening words decide, and these do not open that way."""
+        for title in (
+            "Our framework for reporting model misalignment",
+            "NVIDIA Vera Rubin NVL72 Delivers Leading Performance",
+            "Perplexity trusts GPT-6 Astra with end-to-end systems",
+        ):
+            with self.subTest(title=title):
+                self.assertEqual(
+                    self.tech.source_tier({"source": "NVIDIA", "title": title}), 0
+                )
+
+    def test_marketing_shape_only_applies_to_primary_sources(self) -> None:
+        """"Why the EU banned..." is ordinary reporting in a newsroom's hands."""
+        self.assertEqual(
+            self.tech.source_tier(
+                {"source": "France 24", "title": "Why the EU banned a model"}
+            ),
+            1,
+        )
+
+    def test_round_robin_stops_one_interest_taking_the_page(self) -> None:
+        """The complaint, as a test.
+
+        Fifty stories on one interest against one each on six others. Flat ranking
+        by recency returns fifty of the first and none of the rest, which is
+        precisely how this page came to be about legislation.
+        """
+        articles: list[dict[str, object]] = [
+            {
+                "interest": "policy",
+                "title": f"regulation {i}",
+                "url": f"https://example.com/p{i}",
+                "publishedAt": f"2026-09-16T{i % 24:02d}:00:00+00:00",
+            }
+            for i in range(50)
+        ]
+        for key in ("models", "chips", "research", "safety", "products", "business"):
+            articles.append(
+                {
+                    "interest": key,
+                    "title": key,
+                    "url": f"https://example.com/{key}",
+                    "publishedAt": "2026-09-16T12:00:00+00:00",
+                }
+            )
+
+        chosen = self.tech.select(articles)
+        counts = Counter(str(a.get("interest")) for a in chosen)
+
+        self.assertLessEqual(counts["policy"], self.tech.MAX_PER_INTEREST)
+        self.assertLessEqual(len(chosen), self.tech.MAX_STORIES)
+        # And the quiet interests are not crowded out by the loud one.
+        for key in ("models", "chips", "research", "safety", "products", "business"):
+            with self.subTest(interest=key):
+                self.assertEqual(counts[key], 1)
+
+    def test_junk_filters_deals_and_film(self) -> None:
+        junk = [
+            "The best VPN deals of the day",
+            "Save 40% on this laptop",
+            "Sponsored: the future of work",
+            "Lionsgate releases a new trailer for Sunrise",
+            "Apple shares surge on AI hopes",
+        ]
+        for title in junk:
+            with self.subTest(title=title):
+                self.assertTrue(self.tech.is_junk({"title": title}))
+
+    def test_junk_keeps_real_news(self) -> None:
+        keep = [
+            "Introducing GPT-6 Astra",
+            "NVIDIA Vera Rubin NVL72 Delivers Leading Performance",
+            "EU regulators ban a model",
+            "Anthropic and OpenAI want to embed safety evaluators",
+        ]
+        for title in keep:
+            with self.subTest(title=title):
+                self.assertFalse(self.tech.is_junk({"title": title}))
+
+    def test_interests_are_ordered_technical_first(self) -> None:
+        """The round-robin walks this order, so the order is the editorial call."""
+        keys = [key for key, _label, _kw in self.tech.INTERESTS]
+        self.assertEqual(keys[0], "models")
+        self.assertEqual(keys[-1], "policy")
+
+    def test_keywords_avoid_landing_inside_unrelated_words(self) -> None:
+        """Plain substring matching, so a short keyword is a false positive.
+
+        "law" matches "flaw", "ban" matches "urban", "eu" matches "museum".
+        """
+        for text, wrong in (
+            ("The flaw in the urban museum budget", "policy"),
+            ("A flawless urban planning tool", "policy"),
+        ):
+            with self.subTest(text=text):
+                key, _label, _matched = self.tech.interest_for(text, None)
+                self.assertNotEqual(key, wrong)
 
 
 if __name__ == "__main__":

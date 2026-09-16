@@ -49,13 +49,13 @@ cd "$ROOT" || exit 1
 # --- The pipeline -------------------------------------------------------------
 # Parallel arrays, in run order. Budgets are seconds; they are generous — the
 # point is to stop a hung socket, not to police normal variance.
-STEPS=(discover cluster classify track coverage europe sports stats lietuva)
-LABELS=("Discovery" "Clustering" "Classification" "Tracking" "Coverage" "Europe" "Sports" "Stats" "Lietuva")
-FUNCS=(fetch_world cluster_stories classify_articles track_stories fetch_coverage fetch_europe fetch_sports fetch_stats fetch_lietuva)
-BUDGETS=(600 300 2400 300 2400 300 600 300 600)
+STEPS=(discover cluster classify track coverage europe sports stats lietuva tech)
+LABELS=("Discovery" "Clustering" "Classification" "Tracking" "Coverage" "Europe" "Sports" "Stats" "Lietuva" "Tech")
+FUNCS=(fetch_world cluster_stories classify_articles track_stories fetch_coverage fetch_europe fetch_sports fetch_stats fetch_lietuva fetch_tech)
+BUDGETS=(600 300 2400 300 2400 300 600 300 600 600)
 
 # What the pages read. Restored as a unit if the run fails.
-PUBLISHED=(data/world_covered.json data/europe.json data/sports.json data/stats.json data/lietuva.json)
+PUBLISHED=(data/world_covered.json data/europe.json data/sports.json data/stats.json data/lietuva.json data/tech.json)
 
 LOG_DIR="logs"
 LOGFILE=""
