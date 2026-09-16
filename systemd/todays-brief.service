@@ -1,0 +1,37 @@
+[Unit]
+Description=Today's Brief — build the morning paper and send it to the phone
+
+# The pipeline reads about twenty news feeds. Without this it can be started by
+# the timer the instant a laptop resumes, before DNS is answering, and fail on
+# whatever feed it reaches first — which is the one kind of failure that looks
+# exactly like the internet being down.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/News
+ExecStart=%h/Documents/News/deliver.sh --quiet
+
+# A user service inherits almost nothing: not the PATH from your shell, not
+# PYTHONPATH, not anything set in ~/.profile. python3 is in /usr/bin and the
+# pipeline needs nothing else — but saying so is what stops this working when run
+# by hand and failing at seven in the morning, which is a difference nobody
+# enjoys diagnosing.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+
+# The Telegram credentials are read by deliver.sh from
+# ~/.config/todays-brief/env — deliberately not set here, because unit files are
+# world-readable on many systems and a token does not belong in one. They are
+# optional: without them the paper still builds and delivery says it is skipping.
+
+# A normal run is about six minutes. This is the ceiling, not the expectation: a
+# hung feed should not still be holding the timer when tomorrow's turn comes.
+TimeoutStartSec=45min
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

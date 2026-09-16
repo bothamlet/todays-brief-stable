@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+import json
 
 from common import dedupe_by_url, newest_first, parse_timestamp
 from publishers import Allowlist, forms, normalise  # pyright: ignore[reportMissingImports]
@@ -597,6 +598,156 @@ class TestStatsHelpers(unittest.TestCase):
         self.assertEqual(
             self.fs.SHORT_CONFERENCE.get("Eastern Conference"), "East"
         )
+
+
+class TestBundleEscaping(unittest.TestCase):
+    """The two escapes standing between a headline and a broken paper.
+
+    Both guard the same failure: an HTML parser ends a <script> element at the
+    first `</script`, wherever it appears — inside a string, inside a comment,
+    inside JSON. A headline containing that sequence would truncate the page
+    there, and because it happens in the bundle rather than the source, it would
+    happen only on the phone.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import bundle  # pyright: ignore[reportMissingImports]
+
+        cls.bundle = bundle
+
+    def test_json_escapes_every_angle_bracket(self) -> None:
+        payload = {"title": "Firm </script> closes tag", "n": 1}
+        escaped = self.bundle.escape_json(payload)
+        self.assertNotIn("<", escaped)
+        # And it still parses back to exactly what went in.
+        self.assertEqual(json.loads(escaped), payload)
+
+    def test_json_escapes_brackets_inside_values_not_just_at_the_ends(self) -> None:
+        payload = [{"t": "a < b"}, {"t": "<html>"}]
+        escaped = self.bundle.escape_json(payload)
+        self.assertNotIn("<", escaped)
+        self.assertEqual(json.loads(escaped), payload)
+
+    def test_script_text_cannot_close_its_own_element(self) -> None:
+        escaped = self.bundle.escape_script("var x = '</script>';")
+        self.assertNotIn("</script", escaped)
+        self.assertIn("<\\/script", escaped)
+
+    def test_script_escape_leaves_ordinary_javascript_alone(self) -> None:
+        source = "const a = 1 < 2; // less than, not a tag"
+        self.assertEqual(self.bundle.escape_script(source), source)
+
+    def test_local_asset_refuses_paths_that_leave_the_project(self) -> None:
+        for bad in ("/etc/passwd", "../../secrets", "https://example.com/x.js", ""):
+            with self.subTest(path=bad):
+                self.assertIsNone(self.bundle.local_asset(bad))
+
+    def test_local_asset_accepts_a_real_project_file(self) -> None:
+        self.assertIsNotNone(self.bundle.local_asset("render.js"))
+        self.assertIsNone(self.bundle.local_asset("no-such-file.js"))
+
+    def test_font_url_only_allows_google(self) -> None:
+        for good in (
+            "https://fonts.gstatic.com/s/inter/v13/abc.woff2",
+            "https://fonts.googleapis.com/css2?family=Inter",
+        ):
+            with self.subTest(url=good):
+                self.assertTrue(self.bundle.font_url(good))
+        for bad in (
+            "https://evil.example/s/font.woff2",
+            "http://fonts.gstatic.com/s/x.woff2",
+            "file:///etc/passwd",
+            # A host that merely ends with the allowlisted one.
+            "https://fonts.gstatic.com.evil.example/x.woff2",
+        ):
+            with self.subTest(url=bad):
+                self.assertFalse(self.bundle.font_url(bad))
+
+    def test_faces_sharing_one_file_become_one_face(self) -> None:
+        """A variable font is served once and referenced per weight.
+
+        Inlining block by block wrote the same base64 five times over: twenty
+        blocks, six files, and half of a 2.4MB bundle was one font saying the same
+        thing at five weights.
+        """
+        template = (
+            "@font-face {{ font-family: 'Inter'; font-style: normal;"
+            " font-weight: {weight}; unicode-range: U+0000-00FF;"
+            " src: url(https://fonts.gstatic.com/s/inter/v13/one.woff2) }}"
+        )
+        blocks = [template.format(weight=w) for w in (300, 400, 500, 600, 700)]
+        merged, unreadable = self.bundle.merge_faces(blocks)
+        self.assertEqual(unreadable, 0)
+        self.assertEqual(len(merged), 1)
+        # Widened to the range the single file demonstrably covers.
+        self.assertIn("font-weight: 300 700", merged[0])
+
+    def test_faces_with_distinct_files_stay_distinct(self) -> None:
+        template = (
+            "@font-face {{ font-family: 'Inter'; font-style: normal;"
+            " font-weight: {weight}; unicode-range: U+0000-00FF;"
+            " src: url(https://fonts.gstatic.com/s/inter/v13/{name}.woff2) }}"
+        )
+        blocks = [
+            template.format(weight=400, name="a"),
+            template.format(weight=700, name="b"),
+        ]
+        merged, _ = self.bundle.merge_faces(blocks)
+        self.assertEqual(len(merged), 2)
+
+    def test_subsets_are_never_folded_together(self) -> None:
+        """Same file, different unicode ranges — latin against latin-ext.
+
+        Folding those would give one subset the other's range, and on this paper
+        that means the Lithuanian pages losing their diacritics.
+        """
+        template = (
+            "@font-face {{ font-family: 'Inter'; font-style: normal;"
+            " font-weight: {weight}; unicode-range: {span};"
+            " src: url(https://fonts.gstatic.com/s/inter/v13/one.woff2) }}"
+        )
+        blocks = [
+            template.format(weight=400, span="U+0000-00FF"),
+            template.format(weight=400, span="U+0100-02AF"),
+        ]
+        merged, _ = self.bundle.merge_faces(blocks)
+        self.assertEqual(len(merged), 2)
+
+    def test_an_unreadable_weight_is_counted_not_silently_dropped(self) -> None:
+        """A dropped block is a font that never arrives in the paper."""
+        blocks = [
+            "@font-face { font-family: 'Inter'; font-style: normal;"
+            " font-weight: bold; src: url(https://fonts.gstatic.com/s/x.woff2) }"
+        ]
+        merged, unreadable = self.bundle.merge_faces(blocks)
+        self.assertEqual(merged, [])
+        self.assertEqual(unreadable, 1)
+
+
+class TestTelegramMessage(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        import telegram  # pyright: ignore[reportMissingImports]
+
+        cls.tg = telegram
+
+    def test_caption_says_what_the_paper_is(self) -> None:
+        text = self.tg.caption()
+        self.assertIn("in the briefing", text)
+        self.assertLessEqual(len(text), self.tg.CAPTION_LIMIT)
+
+    def test_stale_is_announced_before_anything_else(self) -> None:
+        """The point of the message is being readable without opening it.
+
+        Learning that the run failed later, from a date under the masthead, is
+        learning it in the wrong order.
+        """
+        fresh = self.tg.caption()
+        stale = self.tg.caption(stale=True)
+        self.assertTrue(stale.startswith("YESTERDAY'S ISSUE"))
+        self.assertGreater(len(stale), len(fresh))
+        self.assertLessEqual(len(stale), self.tg.CAPTION_LIMIT)
 
 
 if __name__ == "__main__":

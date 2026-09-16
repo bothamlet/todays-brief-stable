@@ -260,8 +260,24 @@
     return stamp.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
 
-  /** Fetch and parse JSON, or null. Each page degrades on its own. */
+  /**
+   * One of the page's data files, from wherever this copy of the page got it.
+   *
+   * Two ways, because the paper now travels two ways. Served over HTTP it
+   * fetches, exactly as it always has. Delivered as a single file — which is how
+   * it reaches a phone now, as a Telegram attachment — there is nothing to
+   * fetch: every browser refuses `fetch()` on a file:// URL, so a bundle carrying
+   * its own data would otherwise open to a masthead with no news under it.
+   *
+   * bundle.py writes the files into window.__BRIEF__ while it inlines everything
+   * else. A hosted page never defines that object, so the whole cost there is one
+   * property lookup that misses.
+   */
   async function loadJson(url) {
+    const bundled = window.__BRIEF__;
+    if (bundled && Object.hasOwn(bundled, url)) {
+      return bundled[url];
+    }
     try {
       const response = await fetch(url, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1023,10 +1039,12 @@
 
     let builtAt;
     try {
-      const response = await fetch(BUILT_URL, { cache: "no-store" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const { built_at: built } = await response.json();
-      builtAt = new Date(built);
+      const payload = await loadJson(BUILT_URL);
+      // Checked before constructing the date: `new Date(null)` is the epoch, not
+      // an invalid date, so a missing file would have dated the paper 1970 and
+      // tripped the stale badge rather than falling back.
+      if (!payload || !payload.built_at) throw new Error("no stamp");
+      builtAt = new Date(payload.built_at);
       if (Number.isNaN(builtAt.getTime())) throw new Error("bad timestamp");
     } catch {
       return false;
@@ -1095,11 +1113,9 @@
     if (!block || !target) return;
 
     try {
-      const response = await fetch(DESK_URL, { cache: "no-store" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const { quote } = await response.json();
-      if (!quote) throw new Error("no quote in file");
-      target.textContent = quote;
+      const payload = await loadJson(DESK_URL);
+      if (!payload || !payload.quote) throw new Error("no quote in file");
+      target.textContent = payload.quote;
     } catch {
       block.hidden = true;
     }
