@@ -33,24 +33,21 @@ QUIET=0
 SKIP_PIPELINE=0
 for arg in "$@"; do
     case "$arg" in
-        --quiet)        QUIET=1 ;;
-        --no-pipeline)  SKIP_PIPELINE=1 ;;
-        *) echo "deliver.sh: unknown argument: $arg" >&2; exit 2 ;;
+    --quiet) QUIET=1 ;;
+    --no-pipeline) SKIP_PIPELINE=1 ;;
+    *)
+        echo "deliver.sh: unknown argument: $arg" >&2
+        exit 2
+        ;;
     esac
 done
 
 log() { ((QUIET)) || printf '%s\n' "$*"; }
 
-# Credentials live outside the repository, in a file only this user can read.
-# Never in the tree, never in git, never in the systemd unit — units are world
-# readable on most systems, which makes them a poor place for a token.
-ENV_FILE="${TELEGRAM_ENV_FILE:-$HOME/.config/todays-brief/env}"
-if [[ -f "$ENV_FILE" ]]; then
-    # shellcheck source=/dev/null
-    set -a
-    source "$ENV_FILE"
-    set +a
-fi
+# Credentials are read by telegram.py, from ~/.config/todays-brief/env or from
+# the environment if they are already exported. Not sourced here: three callers
+# reach this step — this script, the systemd timer and a person at a prompt — and
+# one of them will always be the one that forgot.
 
 started=$(date +%s)
 pipeline_status=0
@@ -85,7 +82,7 @@ else
     python3 telegram.py
 fi
 
-elapsed=$(( $(date +%s) - started ))
+elapsed=$(($(date +%s) - started))
 log ""
 log "Delivered in $((elapsed / 60))m $((elapsed % 60))s."
 

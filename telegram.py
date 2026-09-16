@@ -26,6 +26,7 @@ paper that was built should not be thrown away because it could not be delivered
 
 Usage:
     TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... python3 telegram.py
+    python3 telegram.py --find-chat        # discover the chat id
     python3 telegram.py --text-only        # skip the files, just the briefing
 """
 
@@ -48,6 +49,15 @@ API = "https://api.telegram.org"
 PAPER = Path("_site/paper.html")
 FRONT_PAGE = Path("_site/frontpage.jpg")
 
+# Where the credentials live when they are not in the environment: outside the
+# repository, mode 600, and deliberately not in the systemd unit — unit files are
+# world-readable on many systems, and a bot token in one is a bot token you end up
+# revoking. A token committed to git is the same mistake with a longer memory.
+#
+# One file, read in one place. deliver.sh does not source it and the timer does
+# not set it, so there is no second copy to fall out of date.
+ENV_FILE = Path.home() / ".config" / "todays-brief" / "env"
+
 # How many headlines the caption carries. Telegram shows a photo caption in full
 # rather than collapsing it, so this is bounded by the caption limit rather than
 # by how much fits on a lock screen.
@@ -61,7 +71,97 @@ TIMEOUT = 60.0
 
 
 def env(name: str) -> str:
-    return os.environ.get(name, "").strip()
+    """A setting, from the environment or from the credentials file.
+
+    The file wins nothing — an exported variable takes precedence, so a one-off
+    run with `TELEGRAM_CHAT_ID=... python3 telegram.py` does what it looks like it
+    does. Read here rather than by whichever shell happens to invoke this, because
+    deliver.sh, the systemd timer and a human at a prompt are three callers and
+    exactly one of them remembers to source anything.
+    """
+    value = os.environ.get(name, "").strip()
+    if value:
+        return value
+
+    return next(
+        (
+            line.split("=", 1)[1].strip().strip("'\"")
+            for line in ENV_FILE.read_text(encoding="utf-8").splitlines()
+            if line.strip().startswith(f"{name}=")
+        ),
+        "",
+    ) if ENV_FILE.is_file() else ""
+
+
+def find_chat(token: str) -> int:
+    """Print every chat that has messaged this bot, and return how many.
+
+    This exists because the obvious ways to find a chat id do not work. The
+    number in a Telegram Web URL is version-dependent and has broken more than
+    once, and the clients do not agree on whether a private chat's id appears
+    there at all. The API, by contrast, simply says what it saw.
+
+    It only says what it saw, though — Telegram retains updates for about a day
+    and a bot that has never been messaged has nothing to report. Hence the empty
+    case being spelled out rather than reported as a failure.
+    """
+    try:
+        response = requests.get(f"{API}/bot{token}/getUpdates", timeout=TIMEOUT)
+        payload = response.json()
+    except (requests.RequestException, ValueError) as error:
+        print(f"Could not reach the API ({type(error).__name__}).")
+        return 0
+
+    if not payload.get("ok"):
+        # The description says what is wrong with the token without the token.
+        print(f"Telegram refused the request: {payload.get('description', 'no reason given')}")
+        return 0
+
+    seen: dict[int, str] = {}
+    for update in payload.get("result") or []:
+        message = update.get("message") or update.get("edited_message") or {}
+        chat = message.get("chat") or {}
+        if not chat.get("id"):
+            continue
+        raw_id = chat.get("id")
+        if not raw_id:
+            continue
+        try:
+            chat_id = int(raw_id)
+        except (TypeError, ValueError):
+            # Telegram sends a number. Anything else is not a chat this can print.
+            continue
+        name = (
+            chat.get("title")
+            or " ".join(
+                part
+                for part in (chat.get("first_name"), chat.get("last_name"))
+                if part
+            )
+            or chat.get("username")
+            or "(no name)"
+        )
+        username = f" (@{chat['username']})" if chat.get("username") else ""
+        seen[chat_id] = f"{name}{username} · {chat.get('type', '?')}"
+
+    if not seen:
+        print("No chats are visible to this bot yet.")
+        print()
+        print("  Open a chat with your bot and send it anything — /start is fine.")
+        print("  Then run this again. Telegram keeps updates for about a day, so")
+        print("  the message has to be recent; it does not have to be new.")
+        print()
+        print("  This works from Telegram Web. The id comes from the API rather")
+        print("  than from the browser, so the client does not matter.")
+        return 0
+
+    print("Chats that have messaged this bot:\n")
+    for chat_id, description in sorted(seen.items()):
+        print(f"  {chat_id:<18} {description}")
+    print()
+    print("  Put the one you want in ~/.config/todays-brief/env:")
+    print(f"      TELEGRAM_CHAT_ID={sorted(seen)[0]}")
+    return len(seen)
 
 
 def headline_lines(limit: int = MAX_HEADLINES) -> list[str]:
@@ -157,28 +257,37 @@ def send_briefing(token: str, chat: str, stale: bool) -> bool:
     return post(token, "sendMessage", data={"chat_id": chat, "text": text})
 
 
+def document_fields(chat: str) -> dict[str, str]:
+    """The form fields for sendDocument — everything except the file itself.
+
+    `document` must not be among them. A file field that is also a plain string
+    field is not a harmless duplicate: Telegram reads the string as a file_id or a
+    URL, ignores the upload in the same request, and answers "failed to get HTTP
+    URL content" — an error about a URL nobody sent, which is a riddle to debug
+    from the message alone.
+
+    Split out so that constraint can be tested without talking to Telegram.
+    """
+    return {"chat_id": chat}
+
+
 def send_paper(token: str, chat: str) -> bool:
+    """Send the paper as a document.
+
+    Dated, because a chat fills with a paper a day and "paper.html" a hundred
+    times over is a folder nobody can find anything in.
+    """
     if not PAPER.is_file():
         print(f"  telegram: {PAPER} is missing — run bundle.py first")
         return False
+
+    name = f"todays-brief-{_today()}.html"
     with PAPER.open("rb") as handle:
         return post(
             token,
             "sendDocument",
-            data={
-                "chat_id": chat,
-                # The name Telegram shows and saves. Dated, because a chat fills
-                # with a paper a day and "paper.html" a hundred times over is a
-                # folder nobody can find anything in.
-                "document": f"todays-brief-{_today()}.html",
-            },
-            files={
-                "document": (
-                    f"todays-brief-{_today()}.html",
-                    handle,
-                    "text/html",
-                )
-            },
+            data=document_fields(chat),
+            files={"document": (name, handle, "text/html")},
         )
 
 
@@ -197,6 +306,16 @@ def main() -> None:
     token = env("TELEGRAM_BOT_TOKEN")
     chat = env("TELEGRAM_CHAT_ID")
 
+    # Setting up, rather than delivering. Handled before the credential check
+    # because the whole point is to find the chat id that is missing.
+    if "--find-chat" in sys.argv:
+        if not token:
+            print("TELEGRAM_BOT_TOKEN is not set, so there is nothing to ask.")
+            print(f"Put it in {ENV_FILE} or export it.")
+            return
+        find_chat(token)
+        return
+
     if not token or not chat:
         missing = [
             name
@@ -207,6 +326,10 @@ def main() -> None:
             if not value
         ]
         print(f"{' and '.join(missing)} not set — skipping delivery.")
+        # Only worth suggesting when the chat id is the missing half; a missing
+        # token is not something this command can help with.
+        if not chat and token:
+            print("Find it with:  python3 telegram.py --find-chat")
         return
 
     # Ordered, because the front page is the notification and the paper is the

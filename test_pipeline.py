@@ -749,6 +749,18 @@ class TestTelegramMessage(unittest.TestCase):
         self.assertGreater(len(stale), len(fresh))
         self.assertLessEqual(len(stale), self.tg.CAPTION_LIMIT)
 
+    def test_the_document_is_not_also_named_in_the_form_fields(self) -> None:
+        """A string `document` field is read as a URL, not as the upload.
+
+        Sending the paper failed with "failed to get HTTP URL content" — an error
+        about a URL nobody sent — because the filename was in `data` as well as in
+        the multipart part. Telegram reads the string, ignores the upload beside
+        it, and goes looking for that URL.
+        """
+        fields = self.tg.document_fields("123")
+        self.assertNotIn("document", fields)
+        self.assertEqual(fields.get("chat_id"), "123")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
