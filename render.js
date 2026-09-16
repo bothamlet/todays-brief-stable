@@ -56,6 +56,22 @@
   // scrolls on a phone; five is the shape of the thing and the leader is the point.
   const MAX_STAT_ROWS = 5;
 
+  // PARKED: the Sports dashboard.
+  //
+  // The results panels — final games, team spotlight, fixtures, the F1 feature and
+  // the standings tables — are out of the design. Sports is a news page again.
+  //
+  // A flag rather than a deleted call or a commented-out one, so that everything
+  // stays wired: renderDashboard keeps its definition, STATS_URL keeps being
+  // fetched, `stats: true` keeps marking the section, fetch_stats.py keeps running
+  // in run.sh and data/stats.json keeps being current. Setting this to false is
+  // the whole of the restoration.
+  //
+  // The filter tabs live inside renderDashboard, so they are parked with it — and
+  // the league tags they read are still written by the pipeline, so they come
+  // back working rather than back empty.
+  const DASHBOARD_PARKED = true;
+
   // A morning paper is out of date once it has missed a morning. Thirty rather
   // than twenty-four so a slightly late 07:00 run never trips it by accident.
   const STALE_AFTER_HOURS = 30;
@@ -1092,10 +1108,16 @@
       return 0;
     }
 
-    if (section.stats) renderDashboard(container, statsBlocks);
+    if (section.stats && !DASHBOARD_PARKED) {
+      renderDashboard(container, statsBlocks);
+    }
 
     // The feed is wrapped so the tabs can tell an empty filter from a page with
     // no news on it: hiding every card under NBA should say so, not look broken.
+    //
+    // The wrapper and the empty message stay although the tabs are parked with the
+    // dashboard above: they cost nothing, and a filter that comes back to find its
+    // scaffolding missing is a filter nobody re-enables.
     const feed = el("div", "feed");
     feed.appendChild(
       el("p", "feed-empty", "Nothing for this competition today."),
