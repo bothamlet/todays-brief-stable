@@ -1,0 +1,1479 @@
+/* ============================================
+   TODAY'S BRIEF — Daily News Presentation
+   ============================================ */
+
+/* --- Reset & Base --- */
+*,
+*::before,
+*::after {
+ box-sizing: border-box;
+ margin: 0;
+ padding: 0;
+}
+
+:root {
+ /* Warm cream palette */
+ --bg: #faf7ef;
+ --bg-card: #faf7ef;
+ --text-dark: #1a1a1a;
+ --text-medium: #555;
+ --text-light: #888;
+ --border: #e2ddd3;
+
+ /* Category accents (set via JS per page) */
+ --accent: #2563eb;
+ --accent-rgb: 37, 99, 235;
+
+ /* Typography */
+ --font-headline: "Fraunces", Georgia, serif;
+ --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+
+ /* Sizing */
+ --phone-width: 390px;
+ --phone-height: 844px;
+ --page-padding: 28px;
+}
+
+html,
+body {
+ height: 100%;
+ background: #e8e4dc;
+ font-family: var(--font-body);
+ color: var(--text-dark);
+ -webkit-font-smoothing: antialiased;
+ -moz-osx-font-smoothing: grayscale;
+ overflow: hidden;
+}
+
+/* --- Phone Frame --- */
+.phone-frame {
+ position: relative;
+ width: var(--phone-width);
+ height: var(--phone-height);
+ margin: 20px auto;
+ background: var(--bg);
+ border-radius: 48px;
+ overflow: hidden;
+ box-shadow:
+  0 0 0 2px #1a1a1a,
+  0 0 0 6px #333,
+  0 0 0 8px #1a1a1a,
+  0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.phone-notch {
+ position: absolute;
+ top: 0;
+ left: 50%;
+ transform: translateX(-50%);
+ width: 120px;
+ height: 28px;
+ background: #1a1a1a;
+ border-radius: 0 0 18px 18px;
+ z-index: 100;
+}
+
+/* --- Page Indicator Dots --- */
+.page-dots {
+ position: absolute;
+ top: 40px;
+ left: 50%;
+ transform: translateX(-50%);
+ display: flex;
+ gap: 8px;
+ z-index: 50;
+ padding: 4px 0;
+}
+
+.dot {
+ width: 6px;
+ height: 6px;
+ border-radius: 3px;
+ background: #ccc;
+ transition: all 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
+ opacity: 0.5;
+}
+
+.dot.active {
+ width: 20px;
+ opacity: 1;
+}
+
+/* Dot colors by category */
+.dot[data-color="violet"].active {
+ background: #4f46e5;
+}
+.dot[data-color="blue"].active {
+ background: #2563eb;
+}
+.dot[data-color="pink"].active {
+ background: #9d174d;
+}
+.dot[data-color="amber"].active {
+ background: #b45309;
+}
+.dot[data-color="teal"].active {
+ background: #0e7490;
+}
+.dot[data-color="orange"].active {
+ background: #c2410c;
+}
+.dot[data-color="gold"].active {
+ background: #a16207;
+}
+
+/* --- Pages Wrapper --- */
+.pages-wrapper {
+ display: flex;
+ width: calc(var(--phone-width) * 6);
+ height: 100%;
+ transition: transform 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
+ will-change: transform;
+}
+
+.page {
+ width: var(--phone-width);
+ height: 100%;
+ flex-shrink: 0;
+ overflow-y: auto;
+ overflow-x: hidden;
+ -webkit-overflow-scrolling: touch;
+ scrollbar-width: none;
+}
+
+.page::-webkit-scrollbar {
+ display: none;
+}
+
+.page-inner {
+ padding: 72px var(--page-padding) 40px;
+ min-height: 100%;
+}
+
+/* --- Page Header --- */
+.page-label {
+ font-family: var(--font-body);
+ font-size: 11px;
+ font-weight: 400;
+ font-variant: small-caps;
+ letter-spacing: 0.05em;
+ color: var(--text-light);
+ margin-bottom: 4px;
+}
+
+.page-title {
+ font-family: var(--font-headline);
+ font-size: 82px;
+ font-weight: 400;
+ line-height: 0.95;
+ letter-spacing: -2px;
+ margin-bottom: 4px;
+ /* Image mask inside text — each category gets its own */
+ background-size: cover;
+ background-position: center;
+ -webkit-background-clip: text;
+ background-clip: text;
+ -webkit-text-fill-color: transparent;
+}
+
+/* Title fills — gradient + pattern placeholders */
+.title-tech {
+ background-image: linear-gradient(
+  135deg,
+  #1e3a5f 0%,
+  #2563eb 40%,
+  #60a5fa 70%,
+  #93c5fd 100%
+ );
+}
+.title-foryou {
+ background-image: linear-gradient(
+  135deg,
+  #4a1942 0%,
+  #9d174d 40%,
+  #d4a0b9 70%,
+  #f0c4d8 100%
+ );
+}
+.title-lietuva {
+ background-image: linear-gradient(
+  135deg,
+  #5c3d0e 0%,
+  #b45309 40%,
+  #d4a148 70%,
+  #e8cc8a 100%
+ );
+}
+.title-europe {
+ background-image: linear-gradient(
+  135deg,
+  #312e81 0%,
+  #4f46e5 40%,
+  #818cf8 70%,
+  #c7d2fe 100%
+ );
+}
+.title-world {
+ background-image: linear-gradient(
+  135deg,
+  #0c4a5e 0%,
+  #0e7490 40%,
+  #38bdf8 70%,
+  #a5f3fc 100%
+ );
+}
+.title-sports {
+ background-image: linear-gradient(
+  135deg,
+  #7c2d12 0%,
+  #c2410c 40%,
+  #f97316 70%,
+  #fdba74 100%
+ );
+}
+.title-other {
+ background-image: linear-gradient(
+  135deg,
+  #713f12 0%,
+  #a16207 40%,
+  #d4a148 70%,
+  #fde68a 100%
+ );
+}
+
+.page-updated {
+ font-family: var(--font-body);
+ font-size: 13px;
+ color: var(--text-light);
+ margin-bottom: 20px;
+}
+
+/* Only rendered when the page is more than a day old — the morning run failed and
+   the previous issue is still standing. Quiet by design: the accent colour, not a
+   warning box. The reader needs to know, not to be alarmed. The negative top
+   margin pulls it up under the date line it belongs to. */
+.page-stale {
+ font-family: var(--font-body);
+ font-size: 12px;
+ letter-spacing: 0.04em;
+ color: var(--accent);
+ margin: -14px 0 20px;
+}
+
+/* --- The Desk Quote — PARKED -------------------------------------------------
+   The quote is out of the design for now; the markup and the loadDeskQuote()
+   call are commented out. These rules are kept so restoring it needs no CSS work.
+   Note the stagger delays further down also name .desk-quote. */
+.desk-quote {
+ border-left: 3px solid var(--accent);
+ padding: 0 0 0 16px;
+ margin-bottom: 20px;
+}
+
+.desk-quote p {
+ font-family: var(--font-headline);
+ font-size: 16px;
+ font-weight: 400;
+ line-height: 1.3;
+ color: var(--text-dark);
+ font-style: italic;
+}
+
+.desk-sig {
+ display: block;
+ margin-top: 6px;
+ font-family: var(--font-body);
+ font-size: 9px;
+ font-weight: 400;
+ font-variant: small-caps;
+ letter-spacing: 0.15em;
+ color: var(--text-light);
+}
+
+/* --- Dividers --- */
+.divider {
+ border: none;
+ border-top: 1px solid var(--border);
+ margin: 20px 0;
+}
+
+/* --- News Cards --- */
+.news-card {
+ margin-bottom: 0;
+}
+
+.card-image {
+ width: 100%;
+ aspect-ratio: 16 / 9;
+ border-radius: 4px;
+ margin-bottom: 12px;
+ overflow: hidden;
+}
+
+.placeholder-img {
+ background-size: cover;
+ background-position: center;
+}
+
+/* Tech placeholders */
+.img-tech-1 {
+ background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 40%, #3b82f6 100%);
+}
+.img-tech-2 {
+ background: linear-gradient(135deg, #1e293b 0%, #334155 40%, #64748b 100%);
+}
+
+/* For You placeholders */
+.img-foryou-1 {
+ background: linear-gradient(
+  135deg,
+  #2e1065 0%,
+  #7c3aed 30%,
+  #f0abfc 60%,
+  #fecdd3 100%
+ );
+ aspect-ratio: 1;
+ max-width: 160px;
+}
+
+/* Lietuva placeholders */
+.img-lietuva-1 {
+ background: linear-gradient(
+  135deg,
+  #166534 0%,
+  #15803d 30%,
+  #a3e635 60%,
+  #fef08a 100%
+ );
+}
+.img-lietuva-2 {
+ background: linear-gradient(135deg, #365314 0%, #65a30d 40%, #facc15 100%);
+}
+
+/* World placeholders */
+.img-world-1 {
+ background: linear-gradient(
+  135deg,
+  #e0f2fe 0%,
+  #7dd3fc 40%,
+  #0ea5e9 70%,
+  #0c4a6e 100%
+ );
+}
+.img-world-2 {
+ background: linear-gradient(135deg, #fed7aa 0%, #f97316 40%, #7c2d12 100%);
+}
+
+/* Sports placeholders */
+.img-sports-1 {
+ background: linear-gradient(
+  135deg,
+  #1e1b4b 0%,
+  #4338ca 30%,
+  #f97316 60%,
+  #fbbf24 100%
+ );
+}
+.img-sports-2 {
+ background: linear-gradient(135deg, #7c2d12 0%, #dc2626 40%, #fbbf24 100%);
+}
+
+/* Other placeholders */
+.img-other-1 {
+ background: linear-gradient(
+  135deg,
+  #0f172a 0%,
+  #1e3a5f 30%,
+  #94a3b8 60%,
+  #f1f5f9 100%
+ );
+}
+.img-other-2 {
+ background: linear-gradient(135deg, #78350f 0%, #d97706 40%, #fef3c7 100%);
+}
+
+/* Card metadata */
+.card-meta {
+ font-family: var(--font-body);
+ font-size: 11px;
+ font-weight: 400;
+ font-variant: small-caps;
+ letter-spacing: 0.05em;
+ color: var(--text-light);
+ margin-bottom: 6px;
+}
+
+.card-tag {
+ color: var(--accent);
+}
+
+.card-headline {
+ font-family: var(--font-headline);
+ font-size: 26px;
+ font-weight: 700;
+ line-height: 1.2;
+ color: var(--text-dark);
+ margin-bottom: 8px;
+}
+
+.card-summary {
+ font-family: var(--font-body);
+ font-size: 15px;
+ font-weight: 400;
+ line-height: 1.55;
+ color: var(--text-medium);
+ margin-bottom: 10px;
+ /* Feed descriptions run long and vary wildly between outlets, which made card
+     heights jump around as you flipped. Clamp to a consistent block. */
+ display: -webkit-box;
+ -webkit-box-orient: vertical;
+ -webkit-line-clamp: 3;
+ line-clamp: 3;
+ overflow: hidden;
+}
+
+/* Card footer */
+.card-footer {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+}
+
+/* Card source row */
+.card-source-row {
+ display: flex;
+ align-items: center;
+ gap: 8px;
+}
+
+.card-source {
+ font-family: var(--font-body);
+ font-size: 13px;
+ font-weight: 400;
+ color: var(--text-light);
+}
+
+/* Lean pill */
+.card-lean {
+ display: inline-block;
+ font-family: var(--font-body);
+ font-size: 10px;
+ font-weight: 400;
+ letter-spacing: 0.05em;
+ padding: 2px 8px;
+ border-radius: 10px;
+ line-height: 1.4;
+}
+
+.card-nav {
+ display: flex;
+ align-items: center;
+ gap: 6px;
+}
+
+.card-nav-btn {
+ background: none;
+ border: none;
+ font-family: var(--font-body);
+ font-size: 14px;
+ color: var(--text-light);
+ cursor: pointer;
+ padding: 4px;
+ line-height: 1;
+ transition: color 0.2s;
+}
+
+.card-nav-btn:hover {
+ color: var(--accent);
+}
+
+.card-nav-dot {
+ width: 6px;
+ height: 6px;
+ border-radius: 50%;
+ background: var(--border);
+ transition: all 0.3s ease;
+}
+
+.card-nav-dot.active {
+ background: var(--accent);
+}
+
+.card-nav-dot--disabled {
+ opacity: 0.25;
+ pointer-events: none;
+}
+
+.card-nav-btn--disabled {
+ opacity: 0.25;
+ pointer-events: none;
+}
+
+/* --- Swipe hint --- */
+.page-swipe-hint {
+ display: flex;
+ align-items: center;
+ gap: 8px;
+ padding: 24px 0 40px;
+ font-family: var(--font-body);
+ font-size: 12px;
+ font-weight: 400;
+ font-variant: small-caps;
+ letter-spacing: 0.12em;
+ color: var(--accent);
+ cursor: pointer;
+}
+
+.page-swipe-hint .arrow {
+ font-size: 16px;
+ transition: transform 0.3s ease;
+}
+
+.page-swipe-hint:hover .arrow {
+ transform: translateX(4px);
+}
+
+/* ============================================
+   FOR YOU — Special Section Styles
+   ============================================ */
+
+.foryou-feature {
+ /* no special wrapper needed */
+}
+
+.foryou-feature-row {
+ display: flex;
+ gap: 16px;
+ align-items: flex-start;
+}
+
+.foryou-album {
+ border-radius: 6px;
+ flex-shrink: 0;
+}
+
+.foryou-feature-text {
+ display: flex;
+ flex-direction: column;
+ gap: 4px;
+}
+
+.foryou-feature-text .card-tag {
+ font-family: var(--font-body);
+ font-size: 10px;
+ font-weight: 400;
+ font-variant: small-caps;
+ letter-spacing: 0.1em;
+ color: var(--text-light);
+ line-height: 1.5;
+}
+
+.foryou-artist {
+ font-family: var(--font-headline);
+ font-size: 22px;
+ font-weight: 400;
+ color: var(--text-dark);
+}
+
+.foryou-album-title {
+ font-family: var(--font-headline);
+ font-size: 16px;
+ font-style: italic;
+ color: var(--text-medium);
+}
+
+.card-link {
+ display: inline-block;
+ margin-top: 6px;
+ font-family: var(--font-body);
+ font-size: 12px;
+ font-weight: 400;
+ font-variant: small-caps;
+ letter-spacing: 0.12em;
+ color: var(--accent);
+ text-decoration: none;
+ transition: opacity 0.2s;
+}
+
+.card-link:hover {
+ opacity: 0.7;
+}
+
+/* For You — Quote card */
+.foryou-quote-card {
+ padding: 8px 0;
+}
+
+.foryou-blockquote {
+ font-family: var(--font-headline);
+ font-size: 20px;
+ font-weight: 400;
+ font-style: italic;
+ line-height: 1.3;
+ color: var(--text-dark);
+ margin-bottom: 12px;
+ border: none;
+}
+
+/* For You — Closing */
+.foryou-closing {
+ padding: 20px 0 40px;
+}
+
+.closing-text {
+ font-family: var(--font-headline);
+ font-size: 22px;
+ font-style: italic;
+ color: var(--accent);
+}
+
+.checkmark {
+ font-style: normal;
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+@media (max-width: 440px) {
+ :root {
+  --phone-width: 100vw;
+ }
+
+ .phone-frame {
+  width: 100vw;
+  height: 100dvh;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+ }
+
+ .phone-notch {
+  display: none;
+ }
+
+ .pages-wrapper {
+  width: calc(100vw * 6);
+ }
+
+ .page {
+  width: 100vw;
+ }
+}
+
+/* ============================================
+   ENTRANCE ANIMATIONS
+   ============================================ */
+
+@keyframes fadeSlideUp {
+ from {
+  opacity: 0;
+  transform: translateY(16px);
+ }
+ to {
+  opacity: 1;
+  transform: translateY(0);
+ }
+}
+
+.page.in-view .page-label,
+.page.in-view .page-title,
+.page.in-view .page-updated,
+.page.in-view .desk-quote,
+.page.in-view .news-card,
+.page.in-view .foryou-feature,
+.page.in-view .foryou-quote-card,
+.page.in-view .foryou-closing,
+.page.in-view .page-swipe-hint {
+ animation: fadeSlideUp 0.5s ease both;
+}
+
+.page.in-view .page-label {
+ animation-delay: 0s;
+}
+.page.in-view .page-title {
+ animation-delay: 0.05s;
+}
+.page.in-view .page-updated {
+ animation-delay: 0.1s;
+}
+.page.in-view .desk-quote {
+ animation-delay: 0.15s;
+}
+.page.in-view .news-card {
+ animation-delay: 0.2s;
+}
+.page.in-view .foryou-feature {
+ animation-delay: 0.2s;
+}
+.page.in-view .foryou-quote-card {
+ animation-delay: 0.25s;
+}
+.page.in-view .foryou-closing {
+ animation-delay: 0.3s;
+}
+.page.in-view .page-swipe-hint {
+ animation-delay: 0.3s;
+}
+
+/* stagger multiple news cards */
+.page.in-view .news-card + .divider + .news-card {
+ animation-delay: 0.3s;
+}
+
+/* ============================================
+   PIPELINE-DRIVEN CARDS (render.js)
+   ============================================ */
+
+/* Real article images. The box collapses entirely when a feed carried no
+   image, rather than leaving an empty 16:9 gap in the card. */
+.card-image-img {
+ display: block;
+ width: 100%;
+ height: 100%;
+ object-fit: cover;
+}
+
+.card-image:not(.card-image--filled) {
+ aspect-ratio: auto;
+ height: 0;
+ margin-bottom: 0;
+}
+
+/* The headline links out to the outlet's article */
+.card-headline-link {
+ color: inherit;
+ text-decoration: none;
+}
+
+.card-headline-link:hover {
+ text-decoration: underline;
+ text-underline-offset: 3px;
+ text-decoration-thickness: 1px;
+}
+
+/* Dot strip for the framing arrows — sits in a span so the arrows flank it */
+.card-nav-dots {
+ display: inline-flex;
+ align-items: center;
+ gap: 4px;
+}
+
+.card-nav {
+ flex-shrink: 0;
+}
+
+/* Outlet names can be long; let them truncate rather than shove the arrows */
+.card-source-row {
+ min-width: 0;
+ flex: 1;
+}
+
+.card-source {
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+}
+
+/* Lean pills — muted tints, deliberately not partisan colours */
+.card-lean[data-lean="left"] {
+ background: rgba(37, 99, 235, 0.1);
+ color: #2563eb;
+}
+
+.card-lean[data-lean="center"] {
+ background: rgba(0, 0, 0, 0.06);
+ color: #888;
+}
+
+.card-lean[data-lean="right"] {
+ background: rgba(194, 65, 12, 0.1);
+ color: #c2410c;
+}
+
+/* ============================================
+   DEVELOPING CUE (from the SQLite memory)
+   ============================================ */
+
+.card-developing {
+ margin-bottom: 8px;
+ font-family: var(--font-body);
+ font-size: 10px;
+ font-weight: 500;
+ letter-spacing: 0.09em;
+ text-transform: uppercase;
+ color: var(--accent);
+ line-height: 1.4;
+}
+
+
+/* ============================================
+   EMPTY / NOT-YET-WIRED PAGES
+   ============================================ */
+
+.page-empty {
+ padding: 24px 0 40px;
+}
+
+.page-empty-title {
+ font-family: var(--font-headline);
+ font-size: 20px;
+ font-weight: 400;
+ line-height: 1.25;
+ color: var(--text-dark);
+ margin-bottom: 8px;
+}
+
+.page-empty-detail {
+ font-family: var(--font-body);
+ font-size: 14px;
+ font-weight: 400;
+ line-height: 1.55;
+ color: var(--text-medium);
+}
+
+/* ============================================
+   RESULTS & STANDINGS (fetch_stats.py)
+   ============================================ */
+
+/* The sports page's header carries the date opposite the title, so the widest
+   word on the page and the day it belongs to are read in one movement. */
+.beat-head {
+ display: flex;
+ align-items: flex-end;
+ justify-content: space-between;
+ gap: 12px;
+}
+
+.beat-head .page-title {
+ font-size: 72px;
+}
+
+.beat-head .page-updated {
+ text-align: right;
+ margin-bottom: 6px;
+ /* The date keeps its width and the title gives up the pixels: a flex item will
+     happily shrink a two-word date into a column one word wide, and did. */
+ flex: 0 0 auto;
+}
+
+/* Two lines, set by render.js as "16 SEP\nWED". Pre-line keeps the newline and
+   lets the pair sit right-aligned under the title without a wrapper element. */
+.beat-date {
+ white-space: pre-line;
+ line-height: 1.5;
+ letter-spacing: 0.1em;
+ text-transform: uppercase;
+ font-size: 12px;
+}
+
+.beat-date::after {
+ content: "";
+ display: block;
+ width: 30px;
+ height: 2px;
+ background: var(--accent);
+ margin: 7px 0 0 auto;
+}
+
+.beat-tagline {
+ font-family: var(--font-body);
+ font-size: 14px;
+ color: var(--text-light);
+ margin: 6px 0 20px;
+}
+
+/* ============================================
+   THE SPORTS DASHBOARD
+   ============================================ */
+
+/* The panels above the sports news: finished games, the teams being watched,
+   what is on next, and one feature with a championship table beside it.
+
+   Built as boxes rather than as loose typography, because this is the one part
+   of the page that is reference rather than reading — the eye should be able to
+   find the Thunder's record without reading a paragraph to reach it. */
+
+.dash {
+ margin-bottom: 22px;
+}
+
+/* --- filter tabs --- */
+
+/* A strip, not a wrapping row: four tabs do not fit a narrow phone at a legible
+   size, and scrolling them keeps every label readable rather than shrinking two
+   of them to fit. */
+.dash-tabs {
+ display: flex;
+ gap: 4px;
+ overflow-x: auto;
+ scrollbar-width: none;
+ border-bottom: 1px solid rgba(26, 26, 26, 0.1);
+ margin-bottom: 14px;
+}
+
+.dash-tabs::-webkit-scrollbar {
+ display: none;
+}
+
+.dash-tab {
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ flex: 0 0 auto;
+ padding: 8px 10px 10px;
+ border: 0;
+ border-bottom: 2px solid transparent;
+ margin-bottom: -1px;
+ background: none;
+ cursor: pointer;
+ font-family: var(--font-body);
+ font-size: 11px;
+ letter-spacing: 0.1em;
+ text-transform: uppercase;
+ color: var(--text-light);
+ transition:
+  color 0.18s ease,
+  border-color 0.18s ease;
+}
+
+.dash-tab.is-active {
+ color: var(--accent);
+ border-bottom-color: var(--accent);
+}
+
+.dash-tab svg {
+ width: 15px;
+ height: 15px;
+}
+
+/* Two icon styles, because they are drawn two different ways: outlines that
+   should follow the tab's colour, and dots that should be solid. */
+.ico-line,
+.ico-dots {
+ fill: none;
+ stroke: currentColor;
+ stroke-width: 1.35;
+ stroke-linecap: round;
+ stroke-linejoin: round;
+}
+
+.ico-dots {
+ fill: currentColor;
+ stroke: none;
+}
+
+/* --- panels --- */
+
+.panel {
+ border: 1px solid rgba(26, 26, 26, 0.1);
+ border-radius: 14px;
+ padding: 12px 12px 14px;
+ margin-bottom: 12px;
+ background: rgba(255, 255, 255, 0.55);
+}
+
+.panel-head {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ gap: 8px;
+ margin-bottom: 10px;
+}
+
+/* A panel that is only a card: the feature draws its own frame and its own
+   label inside it, so the shell contributes nothing but the filter hook. */
+.panel--bare {
+ border: 0;
+ padding: 0;
+ background: none;
+}
+
+/* The card that holds a standings table. It carries no row of its own, so it has
+   none of the padding a strip of results cards needs — but it still grows and
+   still refuses to shrink, like every other card. */
+.panel-card.table-card {
+ padding: 0;
+ border: 0;
+}
+
+.panel-label {
+ display: flex;
+ align-items: center;
+ gap: 7px;
+ font-family: var(--font-body);
+ font-size: 10px;
+ letter-spacing: 0.12em;
+ text-transform: uppercase;
+ color: var(--text-mid, #4a4a4a);
+}
+
+.panel-label svg {
+ width: 15px;
+ height: 15px;
+ color: var(--accent);
+}
+
+.panel-note {
+ font-family: var(--font-body);
+ font-size: 9px;
+ letter-spacing: 0.09em;
+ text-transform: uppercase;
+ color: var(--text-light);
+}
+
+/* The strip inside a panel. Horizontally scrollable and snapped, so the next
+   card shows at the edge rather than being hidden — the reader should be able to
+   see there is more without a control telling them. */
+.panel-row {
+ display: flex;
+ gap: 9px;
+ overflow-x: auto;
+ scroll-snap-type: x proximity;
+ scrollbar-width: none;
+ /* Room for the card borders, which a clip would otherwise shave off. */
+ padding: 1px;
+ margin: -1px;
+}
+
+.panel-row::-webkit-scrollbar {
+ display: none;
+}
+
+.panel-card {
+ /* Grow to fill, never shrink. Three cards in a 340px panel are 132px each and
+     the strip scrolls; one card grows to the whole width instead of sitting in a
+     strip with 200px of nothing beside it. Shrinking is the one thing that must
+     not happen — a five-fixture day would squeeze every card to an unreadable
+     60px rather than letting the reader scroll. */
+ flex: 1 0 132px;
+ max-width: 100%;
+ scroll-snap-align: start;
+ border: 1px solid rgba(26, 26, 26, 0.09);
+ border-radius: 11px;
+ padding: 9px 10px 8px;
+ background: #fff;
+}
+
+/* The competition, on the card rather than only on the tab: a strip mixing an
+   NBA result and a grand prix needs to say which is which on each one. */
+.card-league {
+ font-family: var(--font-body);
+ font-size: 8px;
+ letter-spacing: 0.11em;
+ text-transform: uppercase;
+ color: var(--text-light);
+ margin-bottom: 7px;
+}
+
+.card-title {
+ font-family: var(--font-body);
+ font-size: 11px;
+ font-weight: 600;
+ color: var(--text-dark);
+ margin-bottom: 5px;
+}
+
+.card-status {
+ font-family: var(--font-body);
+ font-size: 8px;
+ letter-spacing: 0.11em;
+ text-transform: uppercase;
+ color: var(--text-light);
+ margin-top: 8px;
+}
+
+/* --- a finished game --- */
+
+.team-line {
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ padding: 4px 0;
+ font-family: var(--font-body);
+ font-size: 12px;
+ color: var(--text-mid, #4a4a4a);
+}
+
+/* The winner is emphasised by weight rather than colour: a scoreline is a fact,
+   and painting one side red reads as a judgement about the other. */
+.team-line.is-winner .team-name,
+.team-line.is-winner .team-score {
+ font-weight: 700;
+ color: var(--text-dark);
+}
+
+.team-crest {
+ width: 18px;
+ height: 18px;
+ flex: 0 0 auto;
+ object-fit: contain;
+}
+
+.team-name {
+ flex: 1 1 auto;
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+}
+
+.team-score {
+ flex: 0 0 auto;
+ font-variant-numeric: tabular-nums;
+}
+
+/* --- a race --- */
+
+.race-line {
+ display: flex;
+ align-items: baseline;
+ gap: 5px;
+ padding: 3px 0;
+ font-family: var(--font-body);
+ font-size: 11px;
+ color: var(--text-mid, #4a4a4a);
+}
+
+.race-place {
+ flex: 0 0 auto;
+ color: var(--text-light);
+}
+
+.race-name {
+ flex: 1 1 auto;
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+}
+
+.race-value {
+ flex: 0 0 auto;
+ font-variant-numeric: tabular-nums;
+ color: var(--text-light);
+}
+
+/* --- team spotlight --- */
+
+/* Wider than the results cards, because this one carries a table: the identity on
+   the left and the season on the right, which is the whole point of the panel.
+   One on its own grows to the panel — there is no EuroLeague source, so the
+   mock's two-card spotlight is usually a one-card spotlight. */
+.panel-card.spot-card {
+ flex-basis: 288px;
+ border-left: 3px solid var(--accent);
+}
+
+.spot-top {
+ display: flex;
+ align-items: flex-start;
+ justify-content: space-between;
+ gap: 10px;
+}
+
+.spot-id {
+ flex: 0 0 auto;
+ width: 96px;
+}
+
+.spot-crest {
+ width: 42px;
+ height: 42px;
+ object-fit: contain;
+ margin-bottom: 6px;
+}
+
+.spot-city {
+ font-family: var(--font-body);
+ font-size: 8px;
+ letter-spacing: 0.12em;
+ text-transform: uppercase;
+ color: var(--text-light);
+}
+
+.spot-name {
+ font-family: var(--font-display);
+ font-size: 15px;
+ letter-spacing: 0.02em;
+ text-transform: uppercase;
+ color: var(--text-dark);
+ line-height: 1.15;
+}
+
+.spot-record {
+ font-family: var(--font-body);
+ font-size: 15px;
+ font-weight: 600;
+ color: var(--text-dark);
+ margin-top: 6px;
+ font-variant-numeric: tabular-nums;
+}
+
+.spot-standing {
+ font-family: var(--font-body);
+ font-size: 10px;
+ color: var(--text-light);
+}
+
+.spot-stats {
+ flex: 1 1 auto;
+ min-width: 0;
+}
+
+.spot-label {
+ font-family: var(--font-body);
+ font-size: 8px;
+ letter-spacing: 0.11em;
+ text-transform: uppercase;
+ color: var(--text-light);
+ margin-bottom: 5px;
+}
+
+.spot-stat {
+ display: flex;
+ align-items: baseline;
+ justify-content: space-between;
+ gap: 8px;
+ padding: 2px 0;
+ font-family: var(--font-body);
+ font-size: 11px;
+ color: var(--text-light);
+}
+
+/* Tabular figures, so the columns of averages line up down the card the way a
+   stat sheet does — proportional digits make them wander. */
+.spot-stat-value {
+ color: var(--text-dark);
+ font-weight: 500;
+ font-variant-numeric: tabular-nums;
+}
+
+.spot-player {
+ margin-top: 10px;
+ padding-top: 9px;
+ border-top: 1px solid rgba(26, 26, 26, 0.08);
+}
+
+.spot-player svg {
+ width: 12px;
+ height: 12px;
+ color: var(--accent);
+ margin-right: 5px;
+ vertical-align: -1px;
+}
+
+.spot-player-name {
+ font-family: var(--font-body);
+ font-size: 13px;
+ color: var(--text-dark);
+ margin: 3px 0 7px;
+}
+
+.spot-player-stats {
+ display: flex;
+ gap: 18px;
+}
+
+.spot-player-stat {
+ display: flex;
+ flex-direction: column;
+ align-items: center;
+}
+
+.spot-player-stat b {
+ font-family: var(--font-body);
+ font-size: 14px;
+ font-weight: 600;
+ color: var(--text-dark);
+ font-variant-numeric: tabular-nums;
+}
+
+.spot-player-stat span {
+ font-family: var(--font-body);
+ font-size: 8px;
+ letter-spacing: 0.1em;
+ text-transform: uppercase;
+ color: var(--text-light);
+}
+
+/* --- headline-only cards --- */
+
+/* Used by the competitions this page has news for and no results for, so the tab
+   is not an empty frame. It is an index rather than a read: no picture, no
+   summary, so several headlines fit where one article card would. */
+.story-title {
+ font-family: var(--font-display);
+ font-size: 13px;
+ line-height: 1.3;
+ color: var(--text-dark);
+ text-decoration: none;
+ /* Four lines, because a headline index is still headlines — but not five, or
+     one long headline sets the height of every card in the strip. */
+ display: -webkit-box;
+ -webkit-line-clamp: 4;
+ -webkit-box-orient: vertical;
+ overflow: hidden;
+}
+
+.story-source {
+ font-family: var(--font-body);
+ font-size: 8px;
+ letter-spacing: 0.11em;
+ text-transform: uppercase;
+ color: var(--text-light);
+ margin-top: 8px;
+}
+
+/* --- the feature --- */
+
+.feature {
+ padding: 0;
+ overflow: hidden;
+}
+
+.feature-img {
+ display: block;
+ width: 100%;
+ aspect-ratio: 16 / 9;
+ object-fit: cover;
+}
+
+.feature-body {
+ padding: 11px 12px;
+}
+
+.feature-kicker {
+ font-family: var(--font-body);
+ font-size: 8px;
+ letter-spacing: 0.12em;
+ text-transform: uppercase;
+ color: var(--accent);
+ margin-bottom: 5px;
+}
+
+.feature-title {
+ font-family: var(--font-display);
+ font-size: 17px;
+ line-height: 1.22;
+ margin: 0 0 7px;
+}
+
+.feature-title a {
+ color: var(--text-dark);
+ text-decoration: none;
+}
+
+.feature-summary {
+ font-family: var(--font-body);
+ font-size: 12px;
+ line-height: 1.45;
+ color: var(--text-mid, #4a4a4a);
+ /* Three lines, clamped in the layout rather than the data: an RSS description
+     runs to whatever length the publisher felt like, and cutting the string to a
+     character count breaks a word to guess at a width the stylesheet already
+     knows. */
+ display: -webkit-box;
+ -webkit-line-clamp: 3;
+ -webkit-box-orient: vertical;
+ overflow: hidden;
+}
+
+.feature-source {
+ font-family: var(--font-body);
+ font-size: 9px;
+ letter-spacing: 0.08em;
+ text-transform: uppercase;
+ color: var(--text-light);
+ margin-top: 8px;
+}
+
+.feature-more {
+ display: inline-block;
+ font-family: var(--font-body);
+ font-size: 12px;
+ color: var(--accent);
+ text-decoration: none;
+ margin-top: 10px;
+}
+
+.feature-side {
+ padding: 0 12px 12px;
+}
+
+/* --- tables --- */
+
+/* Equal columns, so a table of positions lines up down the page whatever the
+   sport — the same grid draws a race result and a player's averages. */
+.table {
+ border-top: 1px solid rgba(26, 26, 26, 0.1);
+}
+
+.table-label {
+ font-family: var(--font-body);
+ font-size: 8px;
+ letter-spacing: 0.11em;
+ text-transform: uppercase;
+ color: var(--text-light);
+ margin-bottom: 5px;
+}
+
+.table-row {
+ display: grid;
+ /* One flexible column and the rest sized to their contents. The render decides
+     which is which — see buildTable — because it depends on what the table holds:
+     a player's name needs the room, a driver's position does not, and a fixed
+     choice truncates one or strands the other. */
+ grid-template-columns: var(--table-cols, repeat(3, minmax(0, 1fr)));
+ gap: 6px;
+ padding: 3px 0;
+ border-bottom: 1px solid rgba(26, 26, 26, 0.05);
+ font-family: var(--font-body);
+ font-size: 11px;
+ color: var(--text-dark);
+}
+
+.table-row--head {
+ font-size: 9px;
+ letter-spacing: 0.07em;
+ text-transform: uppercase;
+ color: var(--text-light);
+}
+
+.table-cell {
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+}
+
+/* The first column is the position or the player: whichever, it is where the eye
+   lands, so it carries the only emphasis in the table. */
+.table-cell--lead {
+ font-weight: 600;
+}
+
+/* --- the news below the dashboard --- */
+
+/* The tabs filter the headlines as well as the panels: a reader who tapped NBA
+   wants NBA news under the NBA scoreboard, not a mixed feed. */
+.feed-empty {
+ display: none;
+ font-family: var(--font-body);
+ font-size: 13px;
+ color: var(--text-light);
+ padding: 4px 0 8px;
+}
+
+.feed.is-empty .feed-empty {
+ display: block;
+}
+
+/* One rule, used by the tab filter and by anything else that needs to take a
+   node out of the flow without removing it.
+
+   The class is doubled so it outranks any single-class rule that sets a display
+   of its own — the tabs and cards above are flex, and a hidden element that
+   stays `display: flex` is a visible gap rather than nothing. Doubling the class
+   rather than reaching for `!important` keeps this overridable, which matters
+   because the next person to hide something should not have to out-shout it. */
+.is-hidden.is-hidden {
+ display: none;
+}

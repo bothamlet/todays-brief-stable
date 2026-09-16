@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Today's Brief</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;0,9..144,900;1,9..144,400;1,9..144,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="phone-frame">
+    <div class="phone-notch"></div>
+
+    <!-- Page indicator dots — order: World, Europe, Lietuva, Tech, Sports, Other, For You -->
+    <div class="page-dots" id="pageDots">
+      <span class="dot active" data-color="teal"></span>
+      <span class="dot" data-color="violet"></span>
+      <span class="dot" data-color="amber"></span>
+      <span class="dot" data-color="blue"></span>
+      <span class="dot" data-color="orange"></span>
+      <span class="dot" data-color="gold"></span>
+      <span class="dot" data-color="pink"></span>
+    </div>
+
+    <!-- Pages container -->
+    <div class="pages-wrapper" id="pagesWrapper">
+
+      <!-- ==================== 1. WORLD (wired to the pipeline) ==================== -->
+      <section class="page" data-category="world" data-accent="#0e7490" data-accent-rgb="14,116,144">
+        <div class="page-inner">
+          <p class="page-label">TODAY'S BRIEF</p>
+          <h1 class="page-title title-world">WORLD</h1>
+          <p class="page-updated" id="worldUpdated">Loading…</p>
+          <!-- Rendered only when the page is more than a day old. A failed morning
+               run leaves the previous issue standing rather than a blank page, so
+               this is the only place the reader can tell. -->
+          <p class="page-stale" id="worldStale" hidden></p>
+
+          <!-- PARKED. The desk quote is out of the design for now. Nothing was
+               deleted: this markup, the .desk-quote rules in styles.css,
+               loadDeskQuote() in render.js and write_desk.py all remain. To bring
+               it back — uncomment this block and the loadDeskQuote() call, and
+               add write_desk.py back to run.sh's step list. -->
+          <!--
+          <div class="desk-quote" id="deskBlock">
+            <p id="deskQuote"></p>
+            <span class="desk-sig">— Chap.</span>
+          </div>
+          -->
+
+          <hr class="divider">
+
+          <!-- Cards are built by render.js from data/world_covered.json -->
+          <div id="worldStories"></div>
+
+          <div class="page-swipe-hint">
+            <span>SWIPE RIGHT FOR MORE</span>
+            <span class="arrow">&longrightarrow;</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 2. EUROPE ==================== -->
+      <section class="page" data-category="europe" data-accent="#4f46e5" data-accent-rgb="79,70,229">
+        <div class="page-inner">
+          <p class="page-label">TODAY'S BRIEF</p>
+          <h1 class="page-title title-europe">EUROPE</h1>
+          <p class="page-updated" data-stamp>Loading…</p>
+
+          <hr class="divider">
+
+          <!-- Filled by render.js from data/europe.json, built by fetch_europe.py.
+               Not a beat: the world pipeline already classifies a region on every
+               story, and this page reads the European ones — minus whatever the
+               World page is already leading with, so the two do not repeat. -->
+          <div id="europeStories"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 3. LIETUVA ==================== -->
+      <section class="page" data-category="lietuva" data-accent="#b45309" data-accent-rgb="180,83,9">
+        <div class="page-inner">
+          <p class="page-label">TODAY'S BRIEF</p>
+          <h1 class="page-title title-lietuva">LIETUVA</h1>
+          <p class="page-updated" data-stamp>Loading…</p>
+
+          <!-- PARKED: desk quote -->
+          <!--
+          <div class="desk-quote">
+            <p>Population: 2.8 million.<br>Opinions: significantly more.</p>
+            <span class="desk-sig">— Chap.</span>
+          </div>
+          -->
+
+          <hr class="divider">
+
+          <!-- Filled by render.js from data/lietuva.json, built by fetch_lietuva.py:
+               LRT, Delfi, 15min, Lrytas, Kauno diena, Verslo žinios and the rest of
+               the Lithuanian press, rather than Lithuania as the world news roster
+               happens to report it. -->
+          <div id="lietuvaStories"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 4. TECH ==================== -->
+      <section class="page" data-category="tech" data-accent="#2563eb" data-accent-rgb="37,99,235">
+        <div class="page-inner">
+          <p class="page-label">TODAY'S BRIEF</p>
+          <h1 class="page-title title-tech">TECH</h1>
+          <p class="page-updated" data-stamp>Loading…</p>
+
+          <!-- PARKED: desk quote -->
+          <!--
+          <div class="desk-quote">
+            <p>Another model launch.<br>Another headline that forgot to ask why.</p>
+            <span class="desk-sig">— Chap.</span>
+          </div>
+          -->
+
+          <hr class="divider">
+
+          <!-- Filled by render.js from data/world_tracked.json, filtered to
+               classification.category === "Tech". -->
+          <div id="techStories"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 5. SPORTS ==================== -->
+      <section class="page" data-category="sports" data-accent="#c2410c" data-accent-rgb="194,65,12">
+        <div class="page-inner">
+          <!-- The date sits opposite the title here rather than under it. Sports is
+               the one page whose panels need the whole width, and moving the date
+               up buys the dashboard a line. -->
+          <header class="beat-head">
+            <div>
+              <p class="page-label">TODAY'S BRIEF</p>
+              <h1 class="page-title title-sports">SPORTS</h1>
+            </div>
+            <p class="page-updated beat-date" data-stamp="compact">Loading…</p>
+          </header>
+          <p class="beat-tagline">Games. Stats. What's next.</p>
+
+          <!-- PARKED: desk quote -->
+          <!--
+          <div class="desk-quote">
+            <p>Someone won. Someone lost.<br>Several people are very loud about it.</p>
+            <span class="desk-sig">— Chap.</span>
+          </div>
+          -->
+
+          <hr class="divider">
+
+          <!-- Filled by render.js. Above the news: the results dashboard from
+               data/stats.json, built by fetch_stats.py — finished games, the
+               teams being watched, what is on next, and one feature with a
+               championship table. Below it: the headlines from data/sports.json,
+               built by fetch_sports.py, which is its own beat with its own
+               sources and interests — NBA (Thunder, and the Lithuanians), F1,
+               EuroLeague and Žalgiris — not a category filtered out of the world
+               news roster. -->
+          <div id="sportsStories"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 6. OTHER ==================== -->
+      <section class="page" data-category="other" data-accent="#a16207" data-accent-rgb="161,98,7">
+        <div class="page-inner">
+          <p class="page-label">TODAY'S BRIEF</p>
+          <h1 class="page-title title-other">OTHER</h1>
+          <p class="page-updated" data-stamp>Loading…</p>
+
+          <!-- PARKED: desk quote -->
+          <!--
+          <div class="desk-quote">
+            <p>The numbers moved.<br>Someone, somewhere, is thrilled.</p>
+            <span class="desk-sig">— Chap.</span>
+          </div>
+          -->
+
+          <hr class="divider">
+
+          <!-- Filled by render.js from data/world_tracked.json, filtered to
+               classification.category === "Other". -->
+          <div id="otherStories"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 7. FOR YOU ==================== -->
+      <section class="page" data-category="foryou" data-accent="#9d174d" data-accent-rgb="157,23,77">
+        <div class="page-inner">
+          <p class="page-label">TODAY'S BRIEF</p>
+          <h1 class="page-title title-foryou">FOR YOU</h1>
+          <p class="page-updated">Not wired yet</p>
+
+          <!-- PARKED: desk quote -->
+          <!--
+          <div class="desk-quote">
+            <p>Nothing urgent today.<br>Just something worth sitting with.</p>
+            <span class="desk-sig">— Chap.</span>
+          </div>
+          -->
+
+          <hr class="divider">
+
+          <div class="page-empty">
+            <p class="page-empty-title">No personalisation pipeline yet</p>
+            <p class="page-empty-detail">
+              This page needs its own source — music releases, long reads, a generated
+              closing note. Nothing feeds it today.
+            </p>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /pages-wrapper -->
+  </div><!-- /phone-frame -->
+
+  <script src="app.js"></script>
+  <script src="render.js"></script>
+</body>
+</html>

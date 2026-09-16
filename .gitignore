@@ -1,0 +1,22 @@
+# Local issue data and SQLite story history.
+data/
+
+# Built HTML and images.
+_site/
+
+# Python caches.
+__pycache__/
+*.py[cod]
+
+# Run artifacts.
+logs/
+.run.lock
+
+# Credentials.
+.env
+.env.*
+*.key
+*.pem
+auth.json
+
+.venv
