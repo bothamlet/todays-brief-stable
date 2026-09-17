@@ -80,9 +80,18 @@
   // than twenty-four so a slightly late 07:00 run never trips it by accident.
   const STALE_AFTER_HOURS = 30;
 
-  // How long each radar frame holds before the loop moves on. Eight frames at
-  // this speed is a four-second loop: long enough to read a shape moving, short
-  // enough that nobody waits for the frame they want.
+  // How much the map is magnified beyond its native tiles.
+  //
+  // RainViewer's radar tops out at zoom seven, where a pixel is about 700 metres.
+  // There is no closer radar to fetch, so "closer" means showing less of what we
+  // have — the layer is drawn this much larger and the window therefore takes in
+  // that much less of it. Past about two the tiles are visibly soft, and the rain
+  // cells are the only thing that stays readable because they were never sharp.
+  const RADAR_MAGNIFY = 1.7;
+
+  // How long each radar frame holds before the loop moves on. Six frames at this
+  // speed is a three-second loop: long enough to read a shape moving, short enough
+  // that nobody waits for the frame they want.
   const RADAR_FRAME_MS = 500;
 
   // Below this, an hourly chance of rain is not worth a line in the weather row.
@@ -192,6 +201,9 @@
       '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M2.6 12.6v-4.2M6 12.6v-7.2M9.4 12.6v-3M12.8 12.6v-8.4"/></g></svg>',
     cloud:
       '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M4.9 12.1h6.4a2.6 2.6 0 0 0 .4-5.2 3.5 3.5 0 0 0-6.7-.9 2.8 2.8 0 0 0-.1 6.1z"/></g></svg>',
+    play: '<svg viewBox="0 0 16 16"><path class="ico-solid" d="M5.4 3.2l7 4.8-7 4.8z"/></svg>',
+    pause:
+      '<svg viewBox="0 0 16 16"><path class="ico-solid" d="M5 3.4h2v9.2H5zM9 3.4h2v9.2H9z"/></svg>',
   };
 
   // Left first, then centre, then right. Grouped rather than interleaved: the
@@ -1044,6 +1056,7 @@
       const geo = el("div", "radar");
       const cols = String(radar.grid || 3);
       geo.style.setProperty("--radar-cols", cols);
+      geo.style.setProperty("--radar-magnify", String(RADAR_MAGNIFY));
       // How far to slide the tiles so Kaunas is in the middle rather than in a
       // corner. Negative because the layer moves left to bring a city on its
       // right into view. See build_radar for the arithmetic.
@@ -1072,8 +1085,6 @@
       base.classList.add("radar-base");
       geo.appendChild(base);
 
-      // One layer per frame, stacked and cross-faded by a class. The newest is
-      // drawn last so it is on top while the others are still loading.
       // One layer per frame, stacked and cross-faded by a class. The class is
       // what the stylesheet holds at zero opacity — without it every frame sits
       // at full opacity on top of the last, which looks like a single working
@@ -1087,43 +1098,108 @@
       for (const frame of frames) geo.appendChild(frame);
       node.appendChild(geo);
 
-      const note = el("p", "radar-note");
+      const times = (radar.frames || []).map((frame) => frame.time || "");
       const stamp = el("span", "radar-time");
-      note.appendChild(stamp);
-      if (radar.from && radar.time && radar.from !== radar.time) {
-        note.appendChild(el("span", "radar-loop", `loop ${radar.from}–${radar.time}`));
-      }
-      note.appendChild(el("span", "radar-credit", radar.attribution || ""));
-      node.appendChild(note);
+
+      // The bar: play, scrub, and the frame the map is on.
+      //
+      // A slider rather than dots or arrows because the thing being chosen is a
+      // point in time, and a range input already behaves like one — drag it and
+      // you are looking at an hour ago, and there is nothing to explain.
+      const bar = el("div", "radar-bar");
+      const scrub = el("input", "radar-scrub");
+      scrub.type = "range";
+      scrub.min = "0";
+      scrub.max = String(Math.max(0, frames.length - 1));
+      scrub.step = "1";
+      scrub.value = "0";
+      scrub.setAttribute("aria-label", "Radar frame");
+
+      const play = el("button", "radar-play");
+      play.type = "button";
 
       if (frames.length > 1) {
-        const times = (radar.frames || []).map((frame) => frame.time || "");
         let current = 0;
+        let running = false;
+        let timer = 0;
+
         const show = (index) => {
+          current = index;
           frames.forEach((frame, i) => {
             frame.classList.toggle("is-shown", i === index);
           });
+          scrub.value = String(index);
           stamp.textContent = `Radar ${times[index]}`;
         };
-        show(current);
 
-        // Respecting the setting rather than animating regardless. A looping map
-        // is exactly the kind of motion the preference exists for, and the newest
-        // frame on its own is the still image it was before.
-        const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const stop = () => {
+          running = false;
+          if (timer) window.clearInterval(timer);
+          timer = 0;
+          const glyph = svgFrom(ICONS.play);
+          play.replaceChildren();
+          if (glyph) play.appendChild(glyph);
+          play.setAttribute("aria-label", "Play the radar loop");
+          play.classList.remove("is-playing");
+        };
+
+        const start = () => {
+          if (running) return;
+          running = true;
+          const glyph = svgFrom(ICONS.pause);
+          play.replaceChildren();
+          if (glyph) play.appendChild(glyph);
+          play.setAttribute("aria-label", "Pause the radar loop");
+          play.classList.add("is-playing");
+          // A timer rather than a CSS keyframe animation: the scrubber and the
+          // label have to move with the map, and the number of frames changes
+          // with the data, so the keyframes cannot be written into a stylesheet
+          // ahead of time.
+          timer = window.setInterval(() => {
+            show((current + 1) % frames.length);
+          }, RADAR_FRAME_MS);
+        };
+
+        play.addEventListener("click", () => (running ? stop() : start()));
+
+        // Dragging stops it. The point of a scrubber is to look at one frame,
+        // and an animation that carries on underneath the hand doing the
+        // looking is fighting the reader.
+        scrub.addEventListener("input", () => {
+          stop();
+          show(Number(scrub.value) || 0);
+        });
+
+        show(0);
+
+        // Respecting the setting rather than animating regardless: a looping map
+        // is exactly the kind of motion the preference exists for, and the
+        // newest frame on its own is the still image it was before. The scrubber
+        // stays, so the earlier frames are still reachable.
+        const still = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
         if (still) {
           show(frames.length - 1);
+          stop();
         } else {
-          // A timer rather than a CSS keyframe animation: the label has to move
-          // with the map, and the number of frames changes with the data, so the
-          // keyframes cannot be written into a stylesheet ahead of time.
-          window.setInterval(() => {
-            current = (current + 1) % frames.length;
-            show(current);
-          }, RADAR_FRAME_MS);
+          start();
         }
-      } else if (radar.time) {
-        stamp.textContent = `Radar ${radar.time}`;
+      } else {
+        const glyph = svgFrom(ICONS.play);
+        if (glyph) play.appendChild(glyph);
+        play.disabled = true;
+        scrub.disabled = true;
+        stamp.textContent = radar.time ? `Radar ${radar.time}` : "Radar";
+      }
+
+      bar.appendChild(play);
+      bar.appendChild(scrub);
+      bar.appendChild(stamp);
+      node.appendChild(bar);
+
+      if (radar.attribution) {
+        node.appendChild(el("p", "radar-credit", radar.attribution));
       }
     } else {
       node.appendChild(el("p", "wx-label", "Radar"));
