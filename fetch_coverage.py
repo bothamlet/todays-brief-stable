@@ -5,35 +5,33 @@ fetch_coverage.py — Step 5 of the daily news pipeline.
 For every high-significance story, gather multi-outlet coverage per political
 lean and attach it as `coverage: {left: [...], center: [...], right: [...]}`.
 
-Two sources, merged per lean and de-duplicated by URL:
+The source is RSS: a fixed roster of two left, two centre and two right outlets,
+each read through several desk feeds and matched locally on keywords. No key, no
+quota, no rate limiting, no domain guessing, and no third-party index deciding
+what exists — which is also what makes the Guardian and the New York Times
+reachable at all.
 
-  * RSS (default) — a fixed roster of 2 left / 2 centre / 2 right outlets, each
-    read via several desk feeds and matched locally on keywords. No key, no quota,
-    no rate limiting, no domain guessing, and no third-party index deciding what
-    exists. This is what makes the Guardian and the NYT reachable at all, both of
-    which NewsAPI does not index.
-  * NewsAPI (optional) — off by default. Keyword queries restricted to lean
-    domains, which adds breadth beyond the fixed roster. Turn on with USE_NEWSAPI.
+There used to be a second source. NewsAPI queried by keyword against
+domain-restricted searches, off by default, and it is gone: RSS found strictly
+more frames for every story tested, needs no key, and cannot be rate limited.
+What NewsAPI left behind was two hundred lines of machinery for a source nobody
+had switched on — request builders, a domain probe, a source index, three
+diagnostic subcommands, fifteen constants, and a degraded-run guard that existed
+only because a metered API can throttle. The instruction to enable it sat in this
+docstring, in the constant beside it, and in four separate comments, none of
+which had ever been acted on.
 
 Feeds are fetched once per run, not once per story, so adding stories is free.
-
 Nothing is fabricated — a lean with no hits gets an empty list.
 
-Set USE_NEWSAPI = True (plus NEWSAPI_KEY) to widen coverage beyond the roster.
-
-Input:  data/world_clustered.json if it exists, else data/world_filtered.json
+Input:  data/world_tracked.json, falling back through the earlier stages
 Output: data/world_covered.json  (input articles, high-significance ones enriched)
 
-Requires NEWSAPI_KEY when USE_NEWSAPI. Keyword extraction uses DEEPSEEK_API_KEY
-(optional — falls back to a stopword heuristic if unset or unavailable).
+Keyword extraction uses DEEPSEEK_API_KEY, optionally — it falls back to a
+stopword heuristic if the key is unset or unavailable.
 
 Usage:
-    export NEWSAPI_KEY="..."
-    python fetch_coverage.py                      # normal run
-    python fetch_coverage.py --check-domains      # probe each configured domain
-    python fetch_coverage.py --list-sources       # dump every available source
-    python fetch_coverage.py --find-domain NAME   # look up a domain string
-    python fetch_coverage.py --probe D1 [D2 ...]  # test arbitrary domain strings
+    python fetch_coverage.py
 """
 
 from __future__ import annotations
@@ -42,7 +40,6 @@ import json
 import os
 import re
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, NoReturn
@@ -94,13 +91,13 @@ def fail(message: str) -> NoReturn:
     raise SystemExit(1)
 
 # --- Configuration -----------------------------------------------------------
-
-NEWSAPI_URL = "https://newsapi.org/v2/everything"
-NEWSAPI_SOURCES_URL = "https://newsapi.org/v2/top-headlines/sources"
-NEWSAPI_KEY_ENV = "NEWSAPI_KEY"
+#
+# Was a table of forty constants for two sources. Fifteen of them configured
+# NewsAPI — its URLs, its key, its page size, its polite delay between calls, the
+# three thresholds its domain probe used, and the fraction of failed queries that
+# meant a degraded run. All of it went with the source.
 
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
-DEEPSEEK_KEY_ENV = "DEEPSEEK_API_KEY"
 DEEPSEEK_MODEL = os.environ.get("COVERAGE_MODEL", "deepseek-flash")
 
 # Pipeline order is: fetch_world -> cluster_stories -> classify_articles ->
@@ -115,32 +112,13 @@ INPUT_CANDIDATES = (
 OUTPUT_PATH = Path("data/world_covered.json")
 
 LOOKBACK_HOURS = 48  # how far back to search for coverage
-ARTICLES_PER_LEAN = 10  # NewsAPI pageSize per lean query
 REQUEST_TIMEOUT = 30.0  # seconds per call
-QUERY_DELAY = 1.0  # polite gap between NewsAPI calls (free tier is rate limited)
 KEYWORD_MAX_TOKENS = 100  # the reply is a tiny JSON object
 MAX_QUERY_TERMS = 2  # NewsAPI ANDs bare terms, so keep the required set tiny
-DIAGNOSE_EMPTY_LEANS = True  # +1 count-only query per lean that returns nothing
-DIAGNOSTIC_LOW_VOLUME_MAX = 10  # below this many total matches, call it low volume
-# If more than this fraction of lean queries fail, the run is degraded (usually
-# rate limiting). We then preserve the existing output and write a .partial file
-# instead, so a bad run can never clobber a good one.
-MAX_FAILED_LEAN_FRACTION = 0.5
-DOMAIN_PROBE_HOURS = 24 * 7  # window used by --check-domains
-# Below this many articles per week (~7/day), a domain will usually read 0 for
-# any specific story query, so treat it as effectively dead for coverage.
-DOMAIN_PROBE_MIN_ARTICLES = 50
 
 LEANS = ("left", "center", "right")
 
-# --- Source toggles ----------------------------------------------------------
-USE_RSS = True  # primary: a fixed outlet roster, matched locally, free + unmetered
-# Optional breadth from NewsAPI keyword queries. Off by default: RSS found strictly
-# more, needs no key, and cannot be rate limited. Turn on to widen the net.
-USE_NEWSAPI = False
-
 RSS_WORKERS = 8  # parallel feed fetches; feeds are independent hosts
-RSS_TIMEOUT = 20.0  # seconds per feed
 MAX_RSS_HITS_PER_LEAN = 2  # frames kept per lean; the card shows at most this
 
 # How many content words a candidate headline must share with the story headline.
@@ -327,23 +305,6 @@ OUTLETS_BY_LEAN: dict[str, list[str]] = {
         "dailysignal.com",  # 103   Right
     ],
 }
-
-# Used by the offline keyword fallback.
-
-
-# --- Helpers -----------------------------------------------------------------
-
-
-def get_newsapi_key() -> str:
-    """Read the NewsAPI key from the environment, or exit with a hint."""
-    key = os.environ.get(NEWSAPI_KEY_ENV, "").strip()
-    if not key:
-        fail(
-            f"{NEWSAPI_KEY_ENV} is not set. Get a free key at https://newsapi.org "
-            "and then run:\n"
-            f'    export {NEWSAPI_KEY_ENV}="your_key_here"'
-        )
-    return key
 
 
 # --- Keyword extraction ------------------------------------------------------
@@ -551,367 +512,6 @@ def rss_coverage(
     return picked
 
 
-# --- Coverage fetching -------------------------------------------------------
-
-
-def summarise_article(raw: dict[str, Any]) -> dict[str, Any]:
-    """Flatten a raw NewsAPI article to the fields we keep for coverage."""
-    return {
-        "title": raw.get("title"),
-        "description": raw.get("description"),
-        "url": raw.get("url"),
-        "urlToImage": raw.get("urlToImage"),
-        "source": (raw.get("source") or {}).get("name"),
-        "publishedAt": raw.get("publishedAt"),
-        "via": "newsapi",
-    }
-
-
-def fetch_lean_coverage(
-    session: requests.Session,
-    api_key: str,
-    lean: str,
-    query: str,
-    domains: list[str],
-) -> tuple[list[dict[str, Any]], bool]:
-    """Run one lean's query. Never raises.
-
-    Returns (articles, ok). ok=False means the call itself failed, so we cannot
-    know whether the story was covered — worth distinguishing from a real zero
-    before spending a diagnostic request.
-    """
-    if not domains:
-        return [], False
-
-    params = {
-        "q": query,
-        "domains": ",".join(domains),
-        "from": (
-            datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS)
-        ).strftime("%Y-%m-%dT%H:%M:%S"),
-        "language": "en",
-        "sortBy": "publishedAt",
-        "pageSize": ARTICLES_PER_LEAN,
-    }
-
-    try:
-        response = session.get(
-            NEWSAPI_URL,
-            params=params,
-            headers={"X-Api-Key": api_key},
-            timeout=REQUEST_TIMEOUT,
-        )
-    except requests.RequestException as exc:
-        print(f"      ! {lean}: request failed: {exc}", file=sys.stderr)
-        return [], False
-
-    if response.status_code != 200:
-        print(
-            f"      ! {lean}: HTTP {response.status_code}: {response.text[:140]}",
-            file=sys.stderr,
-        )
-        return [], False
-
-    try:
-        body = response.json()
-    except ValueError:
-        print(f"      ! {lean}: response was not json", file=sys.stderr)
-        return [], False
-
-    if body.get("status") != "ok":
-        print(
-            f"      ! {lean}: {body.get('message', 'unknown error')}",
-            file=sys.stderr,
-        )
-        return [], False
-
-    results = []
-    for raw in body.get("articles", []):
-        title = (raw.get("title") or "").strip()
-        if not title or title == "[Removed]":
-            continue
-        results.append(summarise_article(raw))
-
-    return results, True
-
-
-def count_matches(
-    session: requests.Session,
-    api_key: str,
-    *,
-    query: str | None = None,
-    domains: list[str] | None = None,
-    lookback_hours: int = LOOKBACK_HOURS,
-) -> int | None:
-    """Count matching articles without downloading them (pageSize=1).
-
-    Reads only `totalResults`, so this is as cheap as a NewsAPI call gets.
-    Returns None if the count itself could not be determined.
-    """
-    params: dict[str, Any] = {
-        "from": (
-            datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
-        ).strftime("%Y-%m-%dT%H:%M:%S"),
-        "language": "en",
-        "pageSize": 1,
-    }
-    if query:
-        params["q"] = query
-    if domains:
-        params["domains"] = ",".join(domains)
-
-    try:
-        response = session.get(
-            NEWSAPI_URL,
-            params=params,
-            headers={"X-Api-Key": api_key},
-            timeout=REQUEST_TIMEOUT,
-        )
-        if response.status_code != 200:
-            return None
-        body = response.json()
-        if body.get("status") != "ok":
-            return None
-        total = body.get("totalResults")
-        return int(total) if isinstance(total, int) else None
-    except (requests.RequestException, ValueError, TypeError):
-        return None
-
-
-def check_domains(api_key: str) -> None:
-    """Probe every configured domain individually. Run with --check-domains.
-
-    A domain NewsAPI does not index returns 0 for every query, which silently
-    empties a whole lean. Probing each one in isolation says which.
-    """
-    session = requests.Session()
-    window = f"the last {DOMAIN_PROBE_HOURS // 24} days"
-    print(f"Probing each configured domain over {window} (no keyword filter)...\n")
-
-    dead: list[tuple[str, str]] = []
-    weak: list[tuple[str, str, int]] = []
-    for lean in LEANS:
-        domains = OUTLETS_BY_LEAN.get(lean, [])
-        print(f"{lean}:")
-        for domain in domains:
-            total = count_matches(
-                session, api_key, domains=[domain], lookback_hours=DOMAIN_PROBE_HOURS
-            )
-            if total is None:
-                verdict, shown = "request failed", "?"
-            elif total == 0:
-                verdict, shown = "NOT INDEXED — dead", "0"
-                dead.append((lean, domain))
-            elif total < DOMAIN_PROBE_MIN_ARTICLES:
-                verdict, shown = "ok but LOW VOLUME — will usually read 0", str(total)
-                weak.append((lean, domain, total))
-            else:
-                verdict, shown = "ok", f"{total}"
-            print(f"  {domain:30} {shown:>8}  {verdict}")
-            time.sleep(QUERY_DELAY)
-
-        # Does the combined list work, or does one dead entry poison it all?
-        combined = count_matches(
-            session, api_key, domains=domains, lookback_hours=DOMAIN_PROBE_HOURS
-        )
-        shown = "?" if combined is None else str(combined)
-        print(f"  {'(combined list)':30} {shown:>8}")
-        time.sleep(QUERY_DELAY)
-        print()
-
-    if dead:
-        print("Dead domains — every story will show 0 for these leans:")
-        for lean, domain in dead:
-            print(f"  {lean}: {domain}")
-    if weak:
-        print(
-            f"\nLow volume (< {DOMAIN_PROBE_MIN_ARTICLES} articles/week) — still fine,"
-            " but expect frequent 0s:"
-        )
-        for lean, domain, total in weak:
-            print(f"  {lean}: {domain} ({total})")
-    if not dead and not weak:
-        print("All configured domains returned healthy results.")
-    elif dead:
-        print("\nReplace the dead ones with domains that returned results above.")
-
-
-def strip_domain(url: str) -> str:
-    """Turn a source URL into the bare domain NewsAPI's `domains` param expects.
-
-    NewsAPI wants `bbc.co.uk`, not `https://www.bbc.co.uk/news`.
-    """
-    cleaned = re.sub(r"^https?://", "", (url or "").strip())
-    cleaned = re.sub(r"^www\.", "", cleaned)
-    return cleaned.split("/")[0].split("?")[0]
-
-
-def fetch_source_index(api_key: str) -> list[dict[str, Any]]:
-    """Fetch NewsAPI's source list (id, name, url) — a single request."""
-    try:
-        response = requests.get(
-            NEWSAPI_SOURCES_URL,
-            params={"language": "en"},
-            headers={"X-Api-Key": api_key},
-            timeout=REQUEST_TIMEOUT,
-        )
-    except requests.RequestException as exc:
-        fail(f"could not reach NewsAPI: {exc}")
-
-    if response.status_code != 200:
-        fail(f"source list HTTP {response.status_code}: {response.text[:160]}")
-
-    try:
-        body = response.json()
-    except ValueError:
-        fail("source list response was not json")
-
-    if body.get("status") != "ok":
-        fail(f"NewsAPI error: {body.get('message', 'unknown error')}")
-
-    return body.get("sources", [])
-
-
-def find_domain(api_key: str, needle: str) -> None:
-    """Search NewsAPI's own source list for an outlet's canonical domain string."""
-    sources = fetch_source_index(api_key)
-    needle_l = needle.lower()
-    hits = [
-        s
-        for s in sources
-        if needle_l in (s.get("name") or "").lower()
-        or needle_l in (s.get("url") or "").lower()
-    ]
-
-    if not hits:
-        print(
-            f"No source matching {needle!r} "
-            f"({len(sources)} sources in NewsAPI's index).\n"
-            "List everything available with:\n"
-            "    python3 fetch_coverage.py --list-sources"
-        )
-        return
-
-    print(f"{len(hits)} match(es) for {needle!r}:\n")
-    for source in sorted(hits, key=lambda s: str(s.get("name") or "")):
-        print(
-            f"  {str(source.get('name'))[:32]:32} "
-            f"{strip_domain(str(source.get('url') or '')):30} "
-            f"id={source.get('id')}"
-        )
-
-    print("\nConfirm one with:  python3 fetch_coverage.py --probe <domain>")
-    print(
-        "Note: /sources lists top-headlines publishers, while /v2/everything may\n"
-        "index a different set — always confirm with --probe before trusting it."
-    )
-
-
-def list_sources(api_key: str) -> None:
-    """Dump every source NewsAPI exposes for your plan.
-
-    Note this covers top-headlines publishers. /v2/everything searches a far
-    larger corpus, so this is a menu of known-good domains, not the full set.
-    Confirm any domain with --probe.
-    """
-    sources = fetch_source_index(api_key)
-    if not sources:
-        print("NewsAPI returned no sources.")
-        return
-
-    rows = sorted(
-        (
-            str(s.get("name") or "?"),
-            strip_domain(str(s.get("url") or "")),
-            str(s.get("category") or ""),
-            str(s.get("country") or ""),
-        )
-        for s in sources
-    )
-    width = max(len(r[0]) for r in rows)
-
-    print(f"{len(rows)} sources available:\n")
-    for name, domain, category, country in rows:
-        print(f"  {name:<{width}}  {domain:<30} {category:<12} {country}")
-
-    print(
-        "\nThese are top-headlines publishers. /v2/everything indexes many more,\n"
-        "so a domain absent here may still work — verify with --probe."
-    )
-
-
-def probe_domains(api_key: str, domains: list[str]) -> None:
-    """Probe arbitrary domain strings against /v2/everything.
-
-    This is the ground truth: a domain that returns 0 here will return 0 for
-    every story, silently emptying a lean.
-    """
-    session = requests.Session()
-    window = f"the last {DOMAIN_PROBE_HOURS // 24} days"
-    print(f"Probing {len(domains)} domain string(s) over {window}...\n")
-
-    working: list[str] = []
-    dead: list[str] = []
-    for domain in domains:
-        total = count_matches(
-            session, api_key, domains=[domain], lookback_hours=DOMAIN_PROBE_HOURS
-        )
-        if total is None:
-            verdict, shown = "request failed", "?"
-        elif total == 0:
-            verdict, shown = "no results", "0"
-            dead.append(domain)
-        elif total < DOMAIN_PROBE_MIN_ARTICLES:
-            verdict, shown = "WORKS but low volume", str(total)
-            working.append(domain)
-        else:
-            verdict, shown = "WORKS", str(total)
-            working.append(domain)
-        print(f"  {domain:38} {shown:>8}  {verdict}")
-        time.sleep(QUERY_DELAY)
-
-    print()
-    if working:
-        print("Working — paste into OUTLETS_BY_LEAN:")
-        for domain in working:
-            print(f"  {domain}")
-    if dead:
-        print("\nDead — drop or replace:")
-        for domain in dead:
-            print(f"  {domain}")
-
-
-def diagnose_empty_lean(
-    session: requests.Session, api_key: str, lean: str, query: str
-) -> None:
-    """Explain a zero-result lean: no coverage, or a query that's too narrow.
-
-    Logs only the unrestricted match count, so this costs one count-only call
-    rather than a full article fetch.
-    """
-    total = count_matches(session, api_key, query=query)
-
-    if total is None:
-        print(
-            f"      {lean}=0 (0 domain-restricted; total count unavailable)",
-            file=sys.stderr,
-        )
-        return
-
-    if total == 0:
-        reading = "query too narrow — no matches anywhere, widen the terms"
-    elif total < DIAGNOSTIC_LOW_VOLUME_MAX:
-        reading = "genuine low volume"
-    else:
-        reading = "matches widely — these outlets just didn't cover it"
-
-    print(
-        f"      {lean}=0 (0 domain-restricted; {total} total matches exist) "
-        f"— {reading}",
-        file=sys.stderr,
-    )
-
-
 COVERAGE_SAME_STORY_PROMPT = """\
 You check whether candidate articles cover the SAME story as a given headline.
 
@@ -1032,13 +632,12 @@ def report(stories: list[dict[str, Any]]) -> None:
         counts = ", ".join(f"{lean}={len(coverage.get(lean, []))}" for lean in LEANS)
 
         items = [i for lean in LEANS for i in coverage.get(lean, [])]
-        n_rss = sum(1 for i in items if i.get("via") == "rss")
         grand_total += len(items)
 
         title = (story.get("title") or "(no headline)").strip()
         print(f"  {title[:66]}")
         print(f"      {counts}")
-        print(f"      sources: {n_rss} rss, {len(items) - n_rss} newsapi")
+        print(f"      sources: {len(items)} articles")
         print(f"      terms: {story.get('search_terms', [])}")
 
     print()
@@ -1057,23 +656,14 @@ def run_pipeline() -> None:
     articles = load_json(input_path)
     print(f"Input: {input_path} ({len(articles)} stories)")
 
-    newsapi_key = get_newsapi_key() if USE_NEWSAPI else ""
     session = requests.Session()
 
     deepseek_key = get_api_key()
     print(f"Keywords: {DEEPSEEK_MODEL if deepseek_key else 'stopword fallback'}")
 
-    active = []
-    if USE_RSS:
-        n_outlets = sum(len(o) for o in RSS_OUTLETS.values())
-        n_feeds = sum(len(u) for o in RSS_OUTLETS.values() for u in o.values())
-        active.append(f"RSS ({n_outlets} outlets, {n_feeds} feeds)")
-    if USE_NEWSAPI:
-        active.append("NewsAPI")
-    print(f"Sources: {', '.join(active) or 'none configured'}")
-
-    if not USE_RSS and not USE_NEWSAPI:
-        fail("both USE_RSS and USE_NEWSAPI are False — nothing to fetch.")
+    n_outlets = sum(len(o) for o in RSS_OUTLETS.values())
+    n_feeds = sum(len(u) for o in RSS_OUTLETS.values() for u in o.values())
+    print(f"Sources: RSS ({n_outlets} outlets, {n_feeds} feeds)")
 
     high_significance = [
         a
@@ -1095,17 +685,13 @@ def run_pipeline() -> None:
         )
 
     # Feeds do not depend on the story, so fetch them once for the whole run.
-    rss_items: dict[str, list[dict[str, Any]]] = {lean: [] for lean in LEANS}
-    if USE_RSS:
-        print("Fetching feeds...")
-        rss_items = fetch_rss_by_lean()
-        summary = "  ".join(f"{lean}={len(rss_items[lean])}" for lean in LEANS)
-        print(f"  {summary} items cached")
+    print("Fetching feeds...")
+    rss_items = fetch_rss_by_lean()
+    summary = "  ".join(f"{lean}={len(rss_items[lean])}" for lean in LEANS)
+    print(f"  {summary} items cached")
 
     print(f"\nGathering coverage for {len(stories)} high-significance stories...")
 
-    attempts = 0
-    failures = 0
     for position, story in enumerate(stories, start=1):
         title = (story.get("title") or "(no headline)").strip()
         print(f"\n  [{position}/{len(stories)}] {title[:66]}")
@@ -1118,39 +704,11 @@ def run_pipeline() -> None:
 
         coverage: dict[str, list[dict[str, Any]]] = {}
         for lean in LEANS:
-            newsapi_hits: list[dict[str, Any]] = []
-            ok = False
-            if USE_NEWSAPI:
-                newsapi_hits, ok = fetch_lean_coverage(
-                    session, newsapi_key, lean, query, OUTLETS_BY_LEAN.get(lean, [])
-                )
-                attempts += 1
-                if not ok:
-                    failures += 1
-
-            rss_hits = (
-                rss_coverage(
-                    rss_items.get(lean, []), terms, str(story.get("title") or "")
-                )
-                if USE_RSS
-                else []
+            hits = rss_coverage(
+                rss_items.get(lean, []), terms, str(story.get("title") or "")
             )
-            merged = dedupe_by_url(newsapi_hits + rss_hits)
-            coverage[lean] = merged
-
-            n_rss = sum(1 for i in merged if i.get("via") == "rss")
-            n_api = len(merged) - n_rss
-            detail = f"{n_rss} rss" + (f" + {n_api} newsapi" if n_api else "")
-            print(f"      {lean}: {len(merged)} ({detail})")
-
-            # Only worth asking NewsAPI why, if RSS also found nothing and the
-            # query itself succeeded.
-            if not merged and USE_NEWSAPI and ok and DIAGNOSE_EMPTY_LEANS:
-                time.sleep(QUERY_DELAY)
-                diagnose_empty_lean(session, newsapi_key, lean, query)
-
-            if USE_NEWSAPI:
-                time.sleep(QUERY_DELAY)
+            coverage[lean] = dedupe_by_url(hits)
+            print(f"      {lean}: {len(coverage[lean])}")
 
         # Semantic check. Word overlap cannot separate "same war" from "same
         # story": "Ukraine drone strikes kill four" and "Moscow claims Ukraine
@@ -1190,74 +748,21 @@ def run_pipeline() -> None:
     for rank, story in enumerate(briefing):
         story["briefing_rank"] = rank
 
-    # Never overwrite good output with a degraded run. With RSS as the primary
-    # source, NewsAPI failing is only disqualifying if RSS came back empty too.
-    rss_total = sum(len(items) for items in rss_items.values())
-    degraded = attempts and failures / attempts > MAX_FAILED_LEAN_FRACTION
-    if degraded and (not USE_RSS or rss_total == 0):
-        partial = OUTPUT_PATH.with_suffix(".partial.json")
-        save_json(articles, partial)
-        print(
-            f"\nWARNING: {failures}/{attempts} NewsAPI queries failed and RSS "
-            "returned nothing — the run is degraded (usually rate limiting).\n"
-            f"Left the existing {OUTPUT_PATH} untouched and wrote this run to\n"
-            f"{partial} instead."
-        )
-        report(stories)
-        return
-
+    # No degraded-run guard any more. It existed because NewsAPI rate-limits and
+    # a throttled run would have overwritten a good file with a thin one; the
+    # constraint went with the source. RSS has no meter, and a run that finds
+    # nothing now is a run that found nothing.
     save_json(articles, OUTPUT_PATH)
     report(stories)
     report_briefing(briefing)
 
 
 def main() -> None:
-    argv = sys.argv[1:]
-    if not argv:
-        run_pipeline()
-        return
-
-    api_key = get_newsapi_key()
-    command, rest = argv[0], argv[1:]
-
-    if command == "--check-domains":
-        check_domains(api_key)
-    elif command == "--list-sources":
-        list_sources(api_key)
-    elif command == "--probe":
-        if not rest:
-            fail(
-                "--probe needs at least one domain, e.g.\n"
-                "    python3 fetch_coverage.py --probe reuters.com www.reuters.com"
-            )
-        # Accept both `--probe a.com b.com` and `--probe a.com,b.com`. The comma
-        # form survives a shell dropping line-continuation backslashes, which
-        # would otherwise silently glue two domains into one garbage string.
-        domains = [
-            d for chunk in rest for d in chunk.replace(",", " ").split() if d
-        ]
-        if not domains:
-            fail("--probe got no usable domains.")
-        probe_domains(api_key, domains)
-    elif command == "--find-domain":
-        if not rest:
-            fail(
-                "--find-domain needs a search term, e.g.\n"
-                "    python3 fetch_coverage.py --find-domain guardian"
-            )
-        if rest[0].startswith("--"):
-            fail(
-                f"--find-domain got {rest[0]!r}, which looks like another flag.\n"
-                "Run one command at a time:\n"
-                "    python3 fetch_coverage.py --find-domain guardian\n"
-                "    python3 fetch_coverage.py --list-sources"
-            )
-        find_domain(api_key, " ".join(rest))
-    else:
-        fail(
-            f"unknown argument {command!r}. Options: "
-            "--check-domains, --list-sources, --probe, --find-domain"
-        )
+    # No argument handling: the four diagnostic subcommands (--check-domains,
+    # --list-sources, --probe, --find-domain) all existed to interrogate
+    # NewsAPI's source index, and they went with it. This script now does one
+    # thing, which is the thing run.sh calls.
+    run_pipeline()
 
 
 if __name__ == "__main__":
