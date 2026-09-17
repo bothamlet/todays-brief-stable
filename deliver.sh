@@ -35,6 +35,10 @@
 #     ./deliver.sh                 # the whole morning
 #     ./deliver.sh --no-pipeline   # re-send what is already built
 #     ./deliver.sh --quiet         # for the timer: only speak on failure
+#
+# Both the build and the delivery are retried. The timer fires once a morning and
+# a failed run is not tried again until tomorrow, so every failure with a second
+# chance left has to use it now rather than then.
 
 set -uo pipefail
 
@@ -51,6 +55,16 @@ NETWORK_WAIT_SECONDS=300
 DELIVERY_ATTEMPTS=3
 DELIVERY_WAIT_SECONDS=60
 
+# How many times to build before giving up and sending what is already on disk.
+# The pipeline reads about twenty feeds and calls a model API, and any one of them
+# timing out at 07:03 should not decide whether there is a paper today.
+#
+# Two, not three: a run is about six minutes, and a second failure is usually the
+# same failure — a third attempt mostly spends another eleven minutes arriving at
+# the same answer.
+PIPELINE_ATTEMPTS=2
+PIPELINE_WAIT_SECONDS=120
+
 QUIET=0
 SKIP_PIPELINE=0
 for arg in "$@"; do
@@ -64,7 +78,7 @@ for arg in "$@"; do
     esac
 done
 
-log() { ((QUIET)) || printf '%s\n' "$*" ; }
+log() { ((QUIET)) || printf '%s\n' "$*"; }
 
 # Is there actually a network, as opposed to a satisfied target?
 #
@@ -118,16 +132,40 @@ pipeline_status=0
 # some files updated and some not.
 wait_for_network || true
 
+# The pipeline, with one retry.
+#
+# run.sh stops at the first failing step — the next step reads this step's output,
+# and carrying on would build the page from a mix of today and yesterday. It also
+# restores the previous issue's files on the way out, so a failure costs an
+# attempt rather than the edition.
+#
+# Written as a statement and then a check, not as `./run.sh --quiet && break`.
+# Inside that form $? is the status of the negated pipeline, which is 0 when the
+# run failed — the exact trap run.sh documents in its own step loop, where it once
+# exited 0 after failing and left the previous issue on the page as if it were
+# today's.
 if ((SKIP_PIPELINE)); then
     log "Skipping the pipeline (--no-pipeline)."
 else
-    log "Building the paper…"
-    ./run.sh --quiet || pipeline_status=$?
+    for ((attempt = 1; attempt <= PIPELINE_ATTEMPTS; attempt++)); do
+        log "Building the paper… (attempt $attempt of $PIPELINE_ATTEMPTS)"
+        ./run.sh --quiet
+        pipeline_status=$?
+        ((pipeline_status == 0)) && break
+
+        if ((attempt < PIPELINE_ATTEMPTS)); then
+            log "  the pipeline exited $pipeline_status; retrying in ${PIPELINE_WAIT_SECONDS}s"
+            sleep "$PIPELINE_WAIT_SECONDS"
+            # A failure at 07:03 is more often the network than the code, so the
+            # retry re-checks rather than assuming the first answer still holds.
+            network_is_up || wait_for_network || true
+        fi
+    done
 fi
 
 if ((pipeline_status != 0)); then
     log ""
-    log "The pipeline exited $pipeline_status."
+    log "The pipeline exited $pipeline_status after $PIPELINE_ATTEMPTS attempt(s)."
     log "Delivering the previous issue, marked as such."
 fi
 
