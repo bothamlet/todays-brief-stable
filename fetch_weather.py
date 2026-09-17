@@ -136,6 +136,45 @@ def describe(code: Any) -> str:
         return "—"
 
 
+# Code to drawing, grouped the way a reader groups them rather than the way the
+# codes are numbered. 51 and 55 are different drizzle intensities and the same
+# picture; 80 to 82 are showers, which the code list files under rain. Two
+# drawings for light drizzle and heavy drizzle would be two drawings nobody could
+# tell apart at 22 pixels.
+#
+# On this side of the wire rather than in render.js because the pipeline already
+# decides what the weather *is* — see describe() — and the renderer should no more
+# choose the shape than it chooses the words. It also makes it testable.
+WEATHER_KINDS: tuple[tuple[frozenset[int], str], ...] = (
+    (frozenset({0}), "clear"),
+    (frozenset({1, 2}), "partly"),
+    (frozenset({3}), "cloudy"),
+    (frozenset({45, 48}), "fog"),
+    (frozenset({51, 53, 55, 56, 57}), "drizzle"),
+    (frozenset({61, 63, 80, 81}), "rain"),
+    (frozenset({65, 66, 67, 82}), "heavy"),
+    (frozenset({71, 73, 75, 77, 85, 86}), "snow"),
+    (frozenset({95, 96, 99}), "storm"),
+)
+
+# What an unrecognised code gets. Not an empty string: a missing drawing is a
+# blank square at the top of the panel, which reads as a rendering fault rather
+# than as weather nobody classified.
+DEFAULT_KIND = "cloudy"
+
+
+def icon_kind(code: Any) -> str:
+    """Which drawing a WMO code gets. Never empty."""
+    try:
+        value = int(code)
+    except (TypeError, ValueError):
+        return DEFAULT_KIND
+    for codes, kind in WEATHER_KINDS:
+        if value in codes:
+            return kind
+    return DEFAULT_KIND
+
+
 def compass(degrees: Any) -> str:
     """A wind direction as a point, for a reader rather than a forecast model.
 
@@ -289,6 +328,10 @@ def fetch_forecast(session: requests.Session) -> dict[str, Any] | None:
             "weather_code,temperature_2m_max,temperature_2m_min,"
             "precipitation_sum,precipitation_probability_max,sunrise,sunset"
         ),
+        # Hourly, for the row of the next few hours the layout has under the big
+        # temperature. WMO code and chance of rain rather than millimetres: an
+        # hour's rainfall in mm is a number nobody has a feel for.
+        "hourly": "weather_code,temperature_2m,precipitation_probability",
         "timezone": TIMEZONE,
         "forecast_days": 4,
     }
@@ -304,6 +347,50 @@ def fetch_forecast(session: requests.Session) -> dict[str, Any] | None:
         return response.json()
     except (requests.RequestException, ValueError):
         return None
+
+
+def build_hours(payload: dict[str, Any], count: int = 6) -> list[dict[str, Any]]:
+    """The next few hours, starting from now rather than from midnight.
+
+    Open-Meteo returns hourly from 00:00 of the first day, so the row has to be
+    sliced from the current hour or it draws tonight's weather as a forecast for
+    the morning. `current.time` is what places the slice — it is the only field in
+    the response that says where now is.
+    """
+    hourly = payload.get("hourly") or {}
+    times = hourly.get("time") or []
+    if not times:
+        return []
+
+    current = str((payload.get("current") or {}).get("time") or "")
+    # "2026-09-17T12:15" and "2026-09-17T12:00" — the hour is the first twelve
+    # characters, which is why this compares prefixes rather than parsing.
+    hour_prefix = current[:13]
+    start = next(
+        (i for i, t in enumerate(times) if str(t)[:13] >= hour_prefix), 0
+    ) if hour_prefix else 0
+
+    hours: list[dict[str, Any]] = []
+    for index in range(start, min(start + count, len(times))):
+
+        def at(field: str) -> Any:
+            values = hourly.get(field) or []
+            return values[index] if index < len(values) else None
+
+        codes = at("weather_code")
+        hours.append(
+            {
+                # "07:00" out of "2026-09-17T07:00" — the API pads the hour, and
+                # slicing the clock is cheaper than parsing and re-formatting it.
+                "time": str(times[index])[-5:],
+                "code": codes,
+                "kind": icon_kind(codes),
+                "description": describe(codes),
+                "temperature": at("temperature_2m"),
+                "probability": at("precipitation_probability"),
+            }
+        )
+    return hours
 
 
 def build_panel(payload: dict[str, Any], radar: dict[str, Any] | None) -> dict[str, Any]:
@@ -327,6 +414,7 @@ def build_panel(payload: dict[str, Any], radar: dict[str, Any] | None) -> dict[s
                 "date": date,
                 "weekday": weekday,
                 "code": at("weather_code"),
+                "kind": icon_kind(at("weather_code")),
                 "description": describe(at("weather_code")),
                 "min": at("temperature_2m_min"),
                 "max": at("temperature_2m_max"),
@@ -343,6 +431,7 @@ def build_panel(payload: dict[str, Any], radar: dict[str, Any] | None) -> dict[s
         "updated": str(current.get("time") or "")[-5:] or utc_now().strftime("%H:%M"),
         "current": {
             "code": current.get("weather_code"),
+            "kind": icon_kind(current.get("weather_code")),
             "description": describe(current.get("weather_code")),
             "temperature": current.get("temperature_2m"),
             "feels_like": current.get("apparent_temperature"),
@@ -353,6 +442,9 @@ def build_panel(payload: dict[str, Any], radar: dict[str, Any] | None) -> dict[s
             "is_day": bool(current.get("is_day")),
         },
         "days": days,
+        # The hourly row, and the radar. `days` is today first, then the three
+        # drawn as cards underneath.
+        "hours": build_hours(payload),
         "radar": radar,
         # Whatever the API says it answered in, so a timezone that silently
         # reverted to UTC would be visible on the page rather than in the sunrise.

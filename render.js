@@ -80,6 +80,11 @@
   // than twenty-four so a slightly late 07:00 run never trips it by accident.
   const STALE_AFTER_HOURS = 30;
 
+  // Below this, an hourly chance of rain is not worth a line in the weather row.
+  // A column of 0%s and 3%s down it is noise, and noise is what stops the 80%
+  // three cells along from being seen at all.
+  const WX_RAIN_WORTH_SHOWING = 15;
+
   /**
    * The pages, and where each one's stories come from.
    *
@@ -564,22 +569,37 @@
   // cheaper than re-parsing the same markup for every tab and every panel, and it
   // keeps the one operation that turns text into elements in a single place.
   const iconCache = new Map();
-  function icon(name) {
-    const markup = ICONS[name];
+
+  /**
+   * An SVG element from a markup string, parsed once and cloned after.
+   *
+   * Keyed by the markup rather than by a name, because two callers now want two
+   * different things from it: the page's fixed icon set asks by name, and the
+   * weather asks with the drawing itself. Passing a weather drawing to a lookup
+   * that reads ICONS[name] finds nothing and returns null — silently, since
+   * nothing is null in a way that renders as no icon rather than as an error.
+   *
+   * Parsed as HTML, NOT as "image/svg+xml". Chromium's XML parser returns the
+   * root element with a null namespace, and an element in no namespace is not an
+   * SVG: every icon sat in the DOM at the right size, reserving its space, and
+   * painted nothing. The tabs and panel headings were blank for days while the
+   * boxes around them measured correctly. HTML parsing puts <svg> in the SVG
+   * namespace, which is the only thing that makes it draw.
+   */
+  function svgFrom(markup) {
     if (!markup) return null;
-    if (!iconCache.has(name)) {
-      // Parsed as HTML, NOT as "image/svg+xml". Chromium's XML parser returns the
-      // root element with a null namespace, and an element in no namespace is not
-      // an SVG: every icon sat in the DOM at the right size, reserving its space,
-      // and painted nothing. The tabs and panel headings were blank for days
-      // while the boxes around them measured correctly. HTML parsing puts <svg>
-      // in the SVG namespace, which is the only thing that makes it draw.
+    if (!iconCache.has(markup)) {
       const parsed = new DOMParser().parseFromString(markup, "text/html");
       const svg = parsed.body && parsed.body.firstElementChild;
       if (!svg || svg.nodeName !== "svg") return null;
-      iconCache.set(name, document.importNode(svg, true));
+      iconCache.set(markup, document.importNode(svg, true));
     }
-    return iconCache.get(name).cloneNode(true);
+    return iconCache.get(markup).cloneNode(true);
+  }
+
+  /** One of the page's own icons, by name. */
+  function icon(name) {
+    return svgFrom(ICONS[name]);
   }
 
   /**
@@ -865,33 +885,148 @@
    * transparent overlays and the base map has to sit under them. Inline as data
    * URIs, which is why this works with no network — see fetch_weather.py.
    */
+  // Weather art, one per kind of weather.
+  //
+  // Drawn rather than imported: nine shapes is cheaper than a font or a sprite,
+  // and they take their colours from the stylesheet the way every other icon on
+  // the page does. The pipeline turns a WMO code into words because a number is
+  // not a forecast; this turns it into a shape because a word is not a glance.
+  // Neither decides anything about the other's job.
+  const WEATHER_ART = {
+    clear:
+      '<circle class="wi-sun" cx="12" cy="12" r="4.6"/>' +
+      '<g class="wi-stroke"><path d="M12 1.6v2.8M12 19.6v2.8M1.6 12h2.8M19.6 12h2.8' +
+      'M4.7 4.7l2 2M17.3 17.3l2 2M19.3 4.7l-2 2M6.7 17.3l-2 2"/></g>',
+    partly:
+      '<circle class="wi-sun" cx="9.4" cy="8.4" r="3.6"/>' +
+      '<g class="wi-stroke"><path d="M9.4 1.8v2.2M1.8 8.4h2.2M4 3.1l1.6 1.6"/></g>' +
+      '<path class="wi-cloud" d="M9.6 20.2h8.6a3.6 3.6 0 0 0 .5-7.2 4.9 4.9 0 0 0-9.2-1.2 4 4 0 0 0 .1 8.4z"/>',
+    cloudy:
+      '<path class="wi-cloud" d="M5.8 17.6h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>',
+    fog:
+      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
+      '<g class="wi-stroke"><path d="M4.4 17.8h15.2M6.4 20.8h11.2"/></g>',
+    drizzle:
+      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
+      '<g class="wi-stroke"><path d="M10 17.6v2.2M14 17.6v2.2"/></g>',
+    rain:
+      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
+      '<g class="wi-stroke"><path d="M8.4 17.4v3M12 17.4v3M15.6 17.4v3"/></g>',
+    heavy:
+      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
+      '<g class="wi-stroke wi-heavy"><path d="M7.8 17.2l-1 4M12 17.2l-1 4M16.2 17.2l-1 4"/></g>',
+    snow:
+      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
+      '<g class="wi-dot"><circle cx="8.8" cy="18.6" r="1.1"/><circle cx="12" cy="21" r="1.1"/><circle cx="15.2" cy="18.6" r="1.1"/></g>',
+    storm:
+      '<path class="wi-cloud" d="M4.4 14.2h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
+      '<path class="wi-bolt" d="M13.6 15.4l-3.6 4.4h2.4l-.8 3.4 3.6-4.6h-2.4z"/>',
+  };
+
+  /**
+   * The drawing for one of the pipeline's kinds, as an element.
+   *
+   * Takes the kind, not the WMO code: the mapping from code to shape lives in
+   * fetch_weather.py beside the mapping from code to words, so that the renderer
+   * decides no more about the shape of the weather than it does about the
+   * wording of it. The fallback is for a data file written before `kind` existed
+   * — a cloudy drawing is wrong in a way nobody minds, where a blank square at
+   * the top of the panel reads as a rendering fault.
+   */
+  function weatherIcon(kind, className) {
+    const art = WEATHER_ART[kind] || WEATHER_ART.cloudy;
+    const span = el("span", `wx-icon${className ? ` ${className}` : ""}`);
+    // svgFrom, not icon(): icon() looks the drawing up by name in ICONS, and the
+    // weather drawings are not in it.
+    //
+    // And the wrapper goes on here rather than being stored nine times. The
+    // drawings above are fragments — a circle, a cloud, some drops — and svgFrom
+    // wants a complete element: handed a bare <circle> it checks nodeName, finds
+    // "circle", and returns null. That failure is silent, since a null icon
+    // renders as nothing at all, and it cost two rounds of checking the DOM.
+    const glyph = svgFrom(`<svg viewBox="0 0 24 24">${art}</svg>`);
+    if (glyph) span.appendChild(glyph);
+    return span;
+  }
+
   function weatherPanel(panel) {
     const node = card(panel.league || "");
     node.classList.add("weather");
 
     const now = panel.current || {};
-    const top = el("div", "weather-now");
-    top.appendChild(
-      el("span", "weather-temp", `${Math.round(Number(now.temperature) || 0)}°`),
+    const today = (panel.days && panel.days[0]) || {};
+
+    node.appendChild(el("p", "wx-label", "Today's forecast"));
+
+    // The hero: the drawing, the temperature, and the day's range opposite.
+    const hero = el("div", "wx-hero");
+    const glyph = weatherIcon(now.kind, "wx-icon--lead");
+    if (glyph) hero.appendChild(glyph);
+
+    const lead = el("div", "wx-lead");
+    lead.appendChild(
+      el("p", "wx-temp", `${Math.round(Number(now.temperature) || 0)}°`),
     );
-    const summary = el("div", "weather-summary");
-    summary.appendChild(el("p", "weather-desc", now.description || ""));
-    summary.appendChild(
+    lead.appendChild(el("p", "wx-desc", now.description || ""));
+    hero.appendChild(lead);
+
+    const range = el("div", "wx-range");
+    if (today.max != null) {
+      range.appendChild(el("p", "wx-range-line", `High ${Math.round(today.max)}°`));
+    }
+    if (today.min != null) {
+      range.appendChild(
+        el("p", "wx-range-line wx-range-low", `Low ${Math.round(today.min)}°`),
+      );
+    }
+    if (today.sunrise) {
+      range.appendChild(
+        el("p", "wx-range-sun", `${today.sunrise} → ${today.sunset}`),
+      );
+    }
+    hero.appendChild(range);
+    node.appendChild(hero);
+
+    node.appendChild(
       el(
         "p",
-        "weather-detail",
+        "wx-detail",
         [
           `Feels ${Math.round(Number(now.feels_like) || 0)}°`,
-          now.humidity != null ? `${now.humidity}% humidity` : "",
-          now.wind != null ? `wind ${now.wind} km/h ${now.wind_direction || ""}`.trim() : "",
+          now.humidity == null ? "" : `${now.humidity}% humidity`,
+          now.wind == null
+            ? ""
+            : `wind ${now.wind} km/h ${now.wind_direction || ""}`.trim(),
+          panel.updated ? `at ${panel.updated}` : "",
         ]
           .filter(Boolean)
           .join(" · "),
       ),
     );
-    if (panel.updated) summary.appendChild(el("p", "weather-at", panel.updated));
-    top.appendChild(summary);
-    node.appendChild(top);
+
+    // The hours ahead. Six across, because that is what fits at a readable size
+    // and it reaches far enough to show the afternoon turning.
+    if (panel.hours && panel.hours.length) {
+      const strip = el("div", "wx-hours");
+      strip.style.setProperty("--wx-hours", String(panel.hours.length));
+      for (const hour of panel.hours) {
+        const cell = el("div", "wx-hour");
+        cell.appendChild(el("p", "wx-hour-time", hour.time || ""));
+        const art = weatherIcon(hour.kind, "wx-icon--hour");
+        if (art) cell.appendChild(art);
+        cell.appendChild(
+          el("p", "wx-hour-temp", `${Math.round(Number(hour.temperature) || 0)}°`),
+        );
+        // The chance of rain only where it is worth knowing. A column of 0%s is
+        // noise, and the eye stops reading the ones that matter.
+        const chance = Number(hour.probability);
+        if (Number.isFinite(chance) && chance >= WX_RAIN_WORTH_SHOWING) {
+          cell.appendChild(el("p", "wx-hour-rain", `${chance}%`));
+        }
+        strip.appendChild(cell);
+      }
+      node.appendChild(strip);
+    }
 
     const radar = panel.radar;
     if (radar && radar.base) {
@@ -921,34 +1056,34 @@
 
       const note = el("p", "radar-note");
       note.appendChild(
-        el("span", "",
-          radar.time ? `Radar ${radar.time}` : "Radar",
-        ),
+        el("span", "", radar.time ? `Radar ${radar.time}` : "Radar"),
       );
       note.appendChild(el("span", "radar-credit", radar.attribution || ""));
       node.appendChild(note);
     }
 
-    if (panel.days && panel.days.length) {
-      const table = el("div", "forecast");
-      panel.days.forEach((day, index) => {
-        const row = el("div", "forecast-row");
-        if (index === 0) row.classList.add("is-today");
-        row.appendChild(el("span", "forecast-day", index === 0 ? "Today" : day.weekday));
-        row.appendChild(
-          el("span", "forecast-temp", `${Math.round(day.min)}–${Math.round(day.max)}°`),
-        );
-        row.appendChild(el("span", "forecast-desc", day.description || ""));
-        row.appendChild(
+    if (panel.days && panel.days.length > 1) {
+      node.appendChild(el("p", "wx-label", "Three days"));
+      const row = el("div", "wx-days");
+      for (const day of panel.days.slice(1, 4)) {
+        const cell = el("div", "wx-day");
+        const art = weatherIcon(day.kind, "wx-icon--day");
+        if (art) cell.appendChild(art);
+        cell.appendChild(el("p", "wx-day-name", day.weekday || ""));
+        cell.appendChild(el("p", "wx-day-desc", day.description || ""));
+        cell.appendChild(
           el(
-            "span",
-            "forecast-rain",
-            day.probability != null ? `${day.probability}%` : "",
+            "p",
+            "wx-day-temp",
+            `${Math.round(day.min)}°/${Math.round(day.max)}°`,
           ),
         );
-        table.appendChild(row);
-      });
-      node.appendChild(table);
+        if (day.probability != null) {
+          cell.appendChild(el("p", "wx-day-rain", `${day.probability}%`));
+        }
+        row.appendChild(cell);
+      }
+      node.appendChild(row);
     }
 
     return node;

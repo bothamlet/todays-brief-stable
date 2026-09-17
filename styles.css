@@ -1452,63 +1452,189 @@ body {
 
 /* --- the weather --- */
 
-/* Kaunas, above the Lietuva news. Two halves: what it is doing now, and what the
-   radar says is coming towards it. */
 
-.weather-now {
+.wx-hero {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
-/* The temperature is the one number on the page anybody reads before coffee, so
-   it is the one given display type. */
-.weather-temp {
+/* The temperature is the one number anybody reads before coffee, so it gets the
+   display face and everything else on the panel is set around it. */
+.wx-temp {
   font-family: var(--font-display);
-  font-size: 40px;
+  font-size: 42px;
   line-height: 1;
   color: var(--text-dark);
   font-variant-numeric: tabular-nums;
+  margin-top: 2px;
 }
 
-.weather-summary {
+.wx-lead {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.weather-desc {
+.wx-desc {
   font-family: var(--font-body);
   font-size: 14px;
   color: var(--text-dark);
-}
-
-.weather-detail {
-  font-family: var(--font-body);
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-light);
-  margin-top: 2px;
-}
-
-.weather-at {
-  font-family: var(--font-body);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: var(--text-light);
   margin-top: 3px;
 }
 
-/* The map. Two absolutely-positioned grids in the same square — the base tiles
+/* The day's range, right-aligned opposite the temperature, which is where the
+   eye goes looking for it after reading the number. */
+.wx-range {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.wx-range-line {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-range-low {
+  color: var(--text-light);
+}
+
+.wx-range-sun {
+  font-family: var(--font-body);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--text-light);
+  margin-top: 4px;
+}
+
+.wx-detail {
+  font-family: var(--font-body);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-light);
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(26, 26, 26, 0.07);
+}
+
+.wx-label {
+  font-family: var(--font-body);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-light);
+  margin: 15px 0 8px;
+}
+
+/* The first sits directly under the panel heading, which already has its own
+   spacing above it. */
+.wx-label:first-child {
+  margin-top: 0;
+}
+
+/* --- the weather drawings --- */
+
+.wx-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wx-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.wx-icon--lead { width: 46px; height: 46px; }
+.wx-icon--hour { width: 22px; height: 22px; margin: 3px 0 2px; }
+.wx-icon--day  { width: 28px; height: 28px; margin-bottom: 4px; }
+
+/* Two colours and two weights, so a rainy afternoon is one glance rather than a
+   word. The sun and the bolt take the accent; everything wet is blue-grey. */
+.wi-sun,
+.wi-bolt {
+  fill: var(--accent);
+}
+
+.wi-cloud {
+  fill: #cdd7df;
+}
+
+.wi-stroke {
+  fill: none;
+  stroke: #7d97ab;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+/* Heavier rain leans the drops, which reads as faster without reading as more. */
+.wi-heavy {
+  stroke-width: 2;
+}
+
+.wi-dot {
+  fill: #a9c3d6;
+}
+
+/* --- the hours ahead --- */
+
+/* Six across. A grid rather than a scrolling strip: six hours is the reach of a
+   short forecast, and a row that fits is a row nobody has to swipe. */
+.wx-hours {
+  display: grid;
+  grid-template-columns: repeat(var(--wx-hours, 6), minmax(0, 1fr));
+  gap: 2px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(26, 26, 26, 0.07);
+}
+
+.wx-hour {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.wx-hour-time {
+  font-family: var(--font-body);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-hour-temp {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Only where it is worth knowing — see WX_RAIN_WORTH_SHOWING. */
+.wx-hour-rain {
+  font-family: var(--font-body);
+  font-size: 9px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  margin-top: 1px;
+}
+
+/* --- the map --- */
+
+/* Two absolutely-positioned grids in the same square — the base tiles
    underneath, the precipitation on top — because the radar tiles are a
    transparent overlay and there is nothing to see them against on their own. */
 .radar {
   position: relative;
   aspect-ratio: 1;
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   border-radius: 8px;
   overflow: hidden;
-  /* A pale blue-grey, so that a tile which has not arrived reads as sea or sky
-     rather than as a hole in the layout. */
+  /* A pale blue-grey, so a tile which has not arrived reads as sea or sky rather
+     than as a hole in the layout. */
   background: #eef1f4;
 }
 
@@ -1550,54 +1676,56 @@ body {
   text-align: right;
 }
 
-/* --- the forecast --- */
+/* --- three days --- */
 
-/* Four rows, not a table: the day, the range, what it will do, and the chance of
-   it doing the wet version. Fixed columns because these are numbers and words in
-   the same position every day, which is what makes them scannable. */
-.forecast {
-  border-top: 1px solid rgba(26, 26, 26, 0.1);
-  margin-top: 12px;
-}
-
-.forecast-row {
+.wx-days {
   display: grid;
-  grid-template-columns: 3.4em 4.6em minmax(0, 1fr) 3.2em;
-  gap: 6px;
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(26, 26, 26, 0.05);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.wx-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 10px 6px 9px;
+  border: 1px solid rgba(26, 26, 26, 0.09);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.wx-day-name {
   font-family: var(--font-body);
-  font-size: 11px;
-  color: var(--text-dark);
-}
-
-.forecast-row.is-today .forecast-day,
-.forecast-row.is-today .forecast-temp {
-  font-weight: 600;
-  color: var(--text-dark);
-}
-
-.forecast-day {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--text-light);
 }
 
-.forecast-temp {
-  font-variant-numeric: tabular-nums;
-}
-
-.forecast-desc {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.wx-day-desc {
+  font-family: var(--font-body);
+  font-size: 10px;
+  line-height: 1.3;
   color: var(--text-light);
+  margin: 4px 0 5px;
 }
 
-/* The one figure in the accent, because it is the one a reader is looking for:
-   whether to take the umbrella. */
-.forecast-rain {
-  text-align: right;
+.wx-day-temp {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dark);
   font-variant-numeric: tabular-nums;
+}
+
+.wx-day-rain {
+  font-family: var(--font-body);
+  font-size: 10px;
   color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
 }
 
 /* --- the news below the dashboard --- */

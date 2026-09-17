@@ -1043,6 +1043,75 @@ class TestWeather(unittest.TestCase):
         self.assertIsNone(panel["days"][0]["probability"])
         self.assertEqual(panel["days"][0]["description"], "Overcast")
 
+    def test_the_hourly_row_starts_from_now(self) -> None:
+        """The one thing about it that fails silently.
+
+        Open-Meteo returns hourly from 00:00, so an unsliced row draws tonight's
+        weather as a forecast for the morning and looks entirely plausible while
+        doing it. `current.time` is the only field saying where now is.
+        """
+        payload = {
+            "current": {"time": "2026-09-17T12:15"},
+            "hourly": {
+                "time": [f"2026-09-17T{h:02d}:00" for h in range(24)],
+                "weather_code": [3] * 24,
+                "temperature_2m": [float(h) for h in range(24)],
+                "precipitation_probability": [h * 4 for h in range(24)],
+            },
+        }
+        hours = self.w.build_hours(payload, count=3)
+        self.assertEqual([h["time"] for h in hours], ["12:00", "13:00", "14:00"])
+        # And the values come with the right times, not the ones from midnight.
+        self.assertEqual([h["temperature"] for h in hours], [12.0, 13.0, 14.0])
+
+    def test_hours_near_midnight_do_not_run_off_the_end(self) -> None:
+        """Asking for six hours at 21:00 returns three, not an IndexError."""
+        payload = {
+            "current": {"time": "2026-09-17T21:30"},
+            "hourly": {
+                "time": [f"2026-09-17T{h:02d}:00" for h in range(24)],
+                "weather_code": [0] * 24,
+                "temperature_2m": [1.0] * 24,
+                "precipitation_probability": [0] * 24,
+            },
+        }
+        hours = self.w.build_hours(payload, count=6)
+        self.assertEqual(len(hours), 3)
+        self.assertEqual(hours[0]["time"], "21:00")
+
+    def test_no_hourly_data_is_an_empty_row_not_a_crash(self) -> None:
+        self.assertEqual(self.w.build_hours({"current": {}, "hourly": {}}), [])
+        self.assertEqual(self.w.build_hours({}), [])
+
+    def test_codes_are_grouped_the_way_a_reader_groups_them(self) -> None:
+        """51 and 55 are different intensities and the same picture.
+
+        The icon is a glance, not a measurement: two drawings for light drizzle
+        and heavy drizzle would be two drawings nobody could tell apart.
+        """
+        together = [
+            ("drizzle", (51, 53, 55, 56, 57)),
+            ("rain", (61, 63, 80, 81)),
+            ("heavy", (65, 66, 67, 82)),
+            ("snow", (71, 73, 75, 77, 85, 86)),
+            ("storm", (95, 96, 99)),
+            ("fog", (45, 48)),
+            ("clear", (0,)),
+            ("partly", (1, 2)),
+            ("cloudy", (3,)),
+        ]
+        for kind, codes in together:
+            for code in codes:
+                with self.subTest(kind=kind, code=code):
+                    self.assertEqual(self.w.icon_kind(code), kind)
+
+    def test_an_unknown_code_still_gets_a_drawing(self) -> None:
+        """A missing icon is a blank square at the top of the panel."""
+        self.assertEqual(self.w.icon_kind(999), "cloudy")
+        for odd in (None, "abc", ""):
+            with self.subTest(code=odd):
+                self.assertEqual(self.w.icon_kind(odd), self.w.DEFAULT_KIND)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
