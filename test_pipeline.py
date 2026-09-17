@@ -922,5 +922,127 @@ class TestTechBeat(unittest.TestCase):
                 self.assertNotEqual(key, wrong)
 
 
+class TestWeather(unittest.TestCase):
+    """The Kaunas panel, and the parts of it that fail quietly if they are wrong."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import fetch_weather  # pyright: ignore[reportMissingImports]
+
+        cls.w = fetch_weather
+
+    def test_the_tile_formula_puts_kaunas_where_the_server_does(self) -> None:
+        """Checked against the tile the server actually returned for Kaunas."""
+        x, y = self.w.tile_number(self.w.LATITUDE, self.w.LONGITUDE, 7)
+        self.assertEqual((x, y), (72, 40))
+
+    def test_a_tile_outside_the_projection_is_clamped(self) -> None:
+        """Past ±85.05 the formula divides the world into more tiles than exist."""
+        x, y = self.w.tile_number(89.9, self.w.LONGITUDE, 7)
+        self.assertEqual(x, 72)
+        self.assertEqual(y, 0, "clamped to the top of the world, not negative")
+
+    def test_an_impossible_coordinate_is_named_when_it_fails(self) -> None:
+        """NaN raises on int() with a message about floats, which says nothing."""
+        for bad in (float("nan"), float("inf")):
+            with self.subTest(value=bad):
+                with self.assertRaises(ValueError) as caught:
+                    self.w.tile_number(bad, self.w.LONGITUDE, 7)
+                self.assertIn("latitude", str(caught.exception))
+
+    def test_compass_survives_a_missing_direction(self) -> None:
+        """A calm hour reports null, and null put into an index is a crash."""
+        for blank in (None, "", "abc", float("nan"), float("inf")):
+            with self.subTest(value=blank):
+                self.assertEqual(self.w.compass(blank), "")
+
+    def test_compass_names_the_points(self) -> None:
+        for degrees, point in ((0, "N"), (90, "E"), (180, "S"), (270, "W"), (241, "WSW")):
+            with self.subTest(degrees=degrees):
+                self.assertEqual(self.w.compass(degrees), point)
+        # 359 is still north. The wrap is the case a naive rounding gets wrong.
+        self.assertEqual(self.w.compass(359), "N")
+
+    def test_weather_codes_become_words(self) -> None:
+        for code, words in (
+            (0, "Clear"),
+            (3, "Overcast"),
+            (63, "Rain"),
+            (95, "Thunderstorm"),
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(self.w.describe(code), words)
+
+    def test_an_unknown_code_does_not_invent_a_forecast(self) -> None:
+        """Better a dash than a guess: the code is the whole forecast here."""
+        for odd in (999, None, "abc", ""):
+            with self.subTest(code=odd):
+                self.assertEqual(self.w.describe(odd), "—")
+
+    def test_the_panel_carries_what_the_renderer_reads(self) -> None:
+        payload = {
+            "timezone": "Europe/Vilnius",
+            "current": {
+                "time": "2026-09-17T12:15",
+                "temperature_2m": 16.1,
+                "apparent_temperature": 16.0,
+                "relative_humidity_2m": 88,
+                "precipitation": 0.0,
+                "weather_code": 3,
+                "wind_speed_10m": 9.4,
+                "wind_direction_10m": 241,
+                "is_day": 1,
+            },
+            "daily": {
+                "time": ["2026-09-17", "2026-09-18"],
+                "weather_code": [63, 51],
+                "temperature_2m_max": [18.6, 19.2],
+                "temperature_2m_min": [12.9, 11.9],
+                "precipitation_sum": [22.3, 0.1],
+                "precipitation_probability_max": [100, 24],
+                "sunrise": ["2026-09-17T07:00", "2026-09-18T07:02"],
+                "sunset": ["2026-09-17T19:36", "2026-09-18T19:33"],
+            },
+        }
+        panel = self.w.build_panel(payload, None)
+
+        for key in ("kind", "title", "updated", "current", "days", "radar", "timezone"):
+            with self.subTest(key=key):
+                self.assertIn(key, panel)
+        self.assertEqual(panel["kind"], "weather")
+        self.assertEqual(panel["title"], "Kaunas")
+        self.assertEqual(panel["timezone"], "Europe/Vilnius")
+        self.assertEqual(panel["current"]["description"], "Overcast")
+        self.assertEqual(panel["current"]["wind_direction"], "WSW")
+        # The time is trimmed to a clock, because the panel draws a clock.
+        self.assertEqual(panel["updated"], "12:15")
+
+        # Every column the forecast table draws has to be on every day.
+        self.assertEqual(len(panel["days"]), 2)
+        for key in ("weekday", "min", "max", "description", "rain", "probability"):
+            with self.subTest(day_key=key):
+                self.assertIn(key, panel["days"][0])
+        self.assertEqual(panel["days"][0]["weekday"], "Thu")
+        self.assertEqual(panel["days"][0]["description"], "Rain")
+
+    def test_a_short_forecast_does_not_index_past_itself(self) -> None:
+        """Open-Meteo can return fewer days than asked for, and a day is six fields."""
+        payload = {
+            "timezone": "Europe/Vilnius",
+            "current": {},
+            "daily": {
+                "time": ["2026-09-17"],
+                "weather_code": [3],
+                "temperature_2m_max": [18.6],
+                "temperature_2m_min": [12.9],
+                # Deliberately missing the rest.
+            },
+        }
+        panel = self.w.build_panel(payload, None)
+        self.assertEqual(len(panel["days"]), 1)
+        self.assertIsNone(panel["days"][0]["probability"])
+        self.assertEqual(panel["days"][0]["description"], "Overcast")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

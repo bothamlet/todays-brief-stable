@@ -37,6 +37,10 @@
   // The Lietuva page has its own beat too — Lithuanian newsrooms, not Lithuania as
   // the world roster happens to report it. See fetch_lietuva.py.
   const LIETUVA_URL = "data/lietuva.json";
+  // The weather for Kaunas, drawn above the Lietuva news — see fetch_weather.py.
+  // A panel rather than a page: it is one map and four numbers, and breakfast is
+  // the only time of day anybody looks at it.
+  const WEATHER_URL = "data/weather.json";
   // Europe is the odd one out: it has no beat of its own, because the world
   // pipeline already classifies a region on every story and nothing was reading
   // it. See fetch_europe.py.
@@ -98,6 +102,10 @@
       title: "Lietuva",
       url: LIETUVA_URL,
       presorted: true,
+      // Panels drawn above the news, before the cards. The weather file holds a
+      // list of them, the same shape fetch_stats.py writes, so the same builders
+      // render both.
+      panels: WEATHER_URL,
     },
     {
       container: "techStories",
@@ -172,6 +180,8 @@
       '<path d="M2 6.6h12M5.2 1.8v2.8M10.8 1.8v2.8"/></g></svg>',
     chart:
       '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M2.6 12.6v-4.2M6 12.6v-7.2M9.4 12.6v-3M12.8 12.6v-8.4"/></g></svg>',
+    cloud:
+      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M4.9 12.1h6.4a2.6 2.6 0 0 0 .4-5.2 3.5 3.5 0 0 0-6.7-.9 2.8 2.8 0 0 0-.1 6.1z"/></g></svg>',
   };
 
   // Left first, then centre, then right. Grouped rather than interleaved: the
@@ -848,7 +858,103 @@
     return node;
   }
 
-  /** Draw one panel in whichever of the four shapes it asked for. */
+  /**
+   * The weather: what it is now, what the radar says is coming, and four days.
+   *
+   * The radar is two grids of nine tiles stacked, not one image: the tiles are
+   * transparent overlays and the base map has to sit under them. Inline as data
+   * URIs, which is why this works with no network — see fetch_weather.py.
+   */
+  function weatherPanel(panel) {
+    const node = card(panel.league || "");
+    node.classList.add("weather");
+
+    const now = panel.current || {};
+    const top = el("div", "weather-now");
+    top.appendChild(
+      el("span", "weather-temp", `${Math.round(Number(now.temperature) || 0)}°`),
+    );
+    const summary = el("div", "weather-summary");
+    summary.appendChild(el("p", "weather-desc", now.description || ""));
+    summary.appendChild(
+      el(
+        "p",
+        "weather-detail",
+        [
+          `Feels ${Math.round(Number(now.feels_like) || 0)}°`,
+          now.humidity != null ? `${now.humidity}% humidity` : "",
+          now.wind != null ? `wind ${now.wind} km/h ${now.wind_direction || ""}`.trim() : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    );
+    if (panel.updated) summary.appendChild(el("p", "weather-at", panel.updated));
+    top.appendChild(summary);
+    node.appendChild(top);
+
+    const radar = panel.radar;
+    if (radar && radar.base) {
+      const wrap = el("div", "radar");
+      for (const [className, tiles] of [
+        ["radar-base", radar.base],
+        ["radar-rain", radar.rain || []],
+      ]) {
+        const grid = el("div", `radar-grid ${className}`);
+        grid.style.setProperty("--radar-cols", String(radar.grid || 3));
+        for (const tile of tiles) {
+          if (!tile) {
+            // An empty cell rather than no cell: the grid has to keep its shape
+            // or the whole map shifts by one tile and puts Kaunas in the sea.
+            grid.appendChild(el("div", "radar-gap"));
+            continue;
+          }
+          const img = el("img", "radar-tile");
+          img.src = tile;
+          img.alt = "";
+          img.loading = "lazy";
+          grid.appendChild(img);
+        }
+        wrap.appendChild(grid);
+      }
+      node.appendChild(wrap);
+
+      const note = el("p", "radar-note");
+      note.appendChild(
+        el("span", "",
+          radar.time ? `Radar ${radar.time}` : "Radar",
+        ),
+      );
+      note.appendChild(el("span", "radar-credit", radar.attribution || ""));
+      node.appendChild(note);
+    }
+
+    if (panel.days && panel.days.length) {
+      const table = el("div", "forecast");
+      panel.days.forEach((day, index) => {
+        const row = el("div", "forecast-row");
+        if (index === 0) row.classList.add("is-today");
+        row.appendChild(el("span", "forecast-day", index === 0 ? "Today" : day.weekday));
+        row.appendChild(
+          el("span", "forecast-temp", `${Math.round(day.min)}–${Math.round(day.max)}°`),
+        );
+        row.appendChild(el("span", "forecast-desc", day.description || ""));
+        row.appendChild(
+          el(
+            "span",
+            "forecast-rain",
+            day.probability != null ? `${day.probability}%` : "",
+          ),
+        );
+        table.appendChild(row);
+      });
+      node.appendChild(table);
+    }
+
+    return node;
+  }
+
+  /** Draw one panel in whichever of the shapes it asked for. */
   function buildPanel(panel) {
     switch (panel.kind) {
       case "games": {
@@ -881,6 +987,11 @@
           row.appendChild(storyCard(story, panel.league));
         }
         node.appendChild(row);
+        return node;
+      }
+      case "weather": {
+        const node = panelShell(panel, "cloud");
+        node.appendChild(weatherPanel(panel));
         return node;
       }
       case "feature": {
@@ -957,6 +1068,27 @@
       );
       feed.classList.toggle("is-empty", !any);
     }
+  }
+
+  /**
+   * Panels above a page's news, with no tabs.
+   *
+   * Split out of renderDashboard, which is the sports one and comes with a tab
+   * strip. The weather needs the panels without the tabs — it is a single panel,
+   * there is nothing to filter, and a filter row above a map would be furniture.
+   */
+  function renderPanels(container, panels) {
+    if (!Array.isArray(panels) || !panels.length) return;
+
+    const dash = el("div", "dash");
+    let drawn = 0;
+    for (const panel of panels) {
+      const node = buildPanel(panel);
+      if (!node) continue;
+      dash.appendChild(node);
+      drawn += 1;
+    }
+    if (drawn) container.appendChild(dash);
   }
 
   /**
@@ -1078,7 +1210,13 @@
   }
 
   /** Render one page's cards into its container. Returns how many it drew. */
-  function renderSection(section, rows, container, statsBlocks) {
+  function renderSection(section, rows, container, extras) {
+    // Two shapes of extra content, and a section may have either, both or
+    // neither. Passed as one object rather than as two positional arguments
+    // because the call site had three booleans' worth of meaning in two slots.
+    const statsBlocks = (extras && extras.stats) || [];
+    const panels = (extras && extras.panels) || null;
+
     let stories;
     if (section.category) {
       stories = rankSections(rows, section.category);
@@ -1107,6 +1245,10 @@
       );
       return 0;
     }
+
+    // A beat's own panels, above its news. The weather for Lietuva; the
+    // dashboard for Sports, which is parked.
+    if (panels && panels.length) renderPanels(container, panels);
 
     if (section.stats && !DASHBOARD_PARKED) {
       renderDashboard(container, statsBlocks);
@@ -1246,15 +1388,22 @@
 
     // One fetch per source file, not per page: three of the five pages read the
     // same tracked list. A missing file is not fatal to the others — each page
-    // says so on its own. Statistics are fetched alongside but never gate a page:
-    // a dead results source should cost the reader a table, not a page.
+    // says so on its own. Panels are fetched alongside but never gate a page:
+    // a dead results source should cost the reader a table, not a page, and a
+    // dead weather service should cost them the weather.
     const urls = [...new Set(SECTIONS.map((s) => s.url))];
+    // Panel sources, in a fixed order, so the indices below stay honest. A set
+    // because two beats could one day share one — they do not today.
+    const panelUrls = [STATS_URL, WEATHER_URL];
     const loaded = await Promise.all([
       ...urls.map((url) => loadJson(url)),
-      loadJson(STATS_URL),
+      ...panelUrls.map((url) => loadJson(url)),
     ]);
     const byUrl = new Map(urls.map((url, i) => [url, loaded[i]]));
-    const statsBlocks = loaded[urls.length] || [];
+    const panelsByUrl = new Map(
+      panelUrls.map((url, i) => [url, loaded[urls.length + i] || []]),
+    );
+    const statsBlocks = panelsByUrl.get(STATS_URL);
 
     let shown = 0;
     for (const section of SECTIONS) {
@@ -1271,7 +1420,10 @@
         );
         continue;
       }
-      shown += renderSection(section, rows, container, statsBlocks);
+      shown += renderSection(section, rows, container, {
+        stats: statsBlocks,
+        panels: section.panels ? panelsByUrl.get(section.panels) : null,
+      });
     }
 
     if (stamp && !stamped) {

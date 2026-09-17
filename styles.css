@@ -1450,6 +1450,156 @@ body {
  font-weight: 600;
 }
 
+/* --- the weather --- */
+
+/* Kaunas, above the Lietuva news. Two halves: what it is doing now, and what the
+   radar says is coming towards it. */
+
+.weather-now {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* The temperature is the one number on the page anybody reads before coffee, so
+   it is the one given display type. */
+.weather-temp {
+  font-family: var(--font-display);
+  font-size: 40px;
+  line-height: 1;
+  color: var(--text-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.weather-desc {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--text-dark);
+}
+
+.weather-detail {
+  font-family: var(--font-body);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-light);
+  margin-top: 2px;
+}
+
+.weather-at {
+  font-family: var(--font-body);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--text-light);
+  margin-top: 3px;
+}
+
+/* The map. Two absolutely-positioned grids in the same square — the base tiles
+   underneath, the precipitation on top — because the radar tiles are a
+   transparent overlay and there is nothing to see them against on their own. */
+.radar {
+  position: relative;
+  aspect-ratio: 1;
+  margin: 12px 0 0;
+  border-radius: 8px;
+  overflow: hidden;
+  /* A pale blue-grey, so that a tile which has not arrived reads as sea or sky
+     rather than as a hole in the layout. */
+  background: #eef1f4;
+}
+
+.radar-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--radar-cols, 3), 1fr);
+  grid-template-rows: repeat(var(--radar-cols, 3), 1fr);
+}
+
+.radar-tile,
+.radar-gap {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Tiles are 256px squares but the grid cell is not, so the tile is scaled to
+   fill rather than letterboxed — a hair of crop at the edges against a visible
+   seam between every cell. */
+.radar-tile {
+  object-fit: cover;
+}
+
+.radar-note {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-light);
+  margin-top: 6px;
+}
+
+.radar-credit {
+  text-align: right;
+}
+
+/* --- the forecast --- */
+
+/* Four rows, not a table: the day, the range, what it will do, and the chance of
+   it doing the wet version. Fixed columns because these are numbers and words in
+   the same position every day, which is what makes them scannable. */
+.forecast {
+  border-top: 1px solid rgba(26, 26, 26, 0.1);
+  margin-top: 12px;
+}
+
+.forecast-row {
+  display: grid;
+  grid-template-columns: 3.4em 4.6em minmax(0, 1fr) 3.2em;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(26, 26, 26, 0.05);
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-dark);
+}
+
+.forecast-row.is-today .forecast-day,
+.forecast-row.is-today .forecast-temp {
+  font-weight: 600;
+  color: var(--text-dark);
+}
+
+.forecast-day {
+  color: var(--text-light);
+}
+
+.forecast-temp {
+  font-variant-numeric: tabular-nums;
+}
+
+.forecast-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-light);
+}
+
+/* The one figure in the accent, because it is the one a reader is looking for:
+   whether to take the umbrella. */
+.forecast-rain {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
 /* --- the news below the dashboard --- */
 
 /* The tabs filter the headlines as well as the panels: a reader who tapped NBA
