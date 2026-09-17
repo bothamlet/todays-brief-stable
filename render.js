@@ -80,6 +80,11 @@
   // than twenty-four so a slightly late 07:00 run never trips it by accident.
   const STALE_AFTER_HOURS = 30;
 
+  // How long each radar frame holds before the loop moves on. Eight frames at
+  // this speed is a four-second loop: long enough to read a shape moving, short
+  // enough that nobody waits for the frame they want.
+  const RADAR_FRAME_MS = 500;
+
   // Below this, an hourly chance of rain is not worth a line in the weather row.
   // A column of 0%s and 3%s down it is noise, and noise is what stops the 80%
   // three cells along from being seen at all.
@@ -972,7 +977,9 @@
 
     const range = el("div", "wx-range");
     if (today.max != null) {
-      range.appendChild(el("p", "wx-range-line", `High ${Math.round(today.max)}°`));
+      range.appendChild(
+        el("p", "wx-range-line", `High ${Math.round(today.max)}°`),
+      );
     }
     if (today.min != null) {
       range.appendChild(
@@ -1015,7 +1022,11 @@
         const art = weatherIcon(hour.kind, "wx-icon--hour");
         if (art) cell.appendChild(art);
         cell.appendChild(
-          el("p", "wx-hour-temp", `${Math.round(Number(hour.temperature) || 0)}°`),
+          el(
+            "p",
+            "wx-hour-temp",
+            `${Math.round(Number(hour.temperature) || 0)}°`,
+          ),
         );
         // The chance of rain only where it is worth knowing. A column of 0%s is
         // noise, and the eye stops reading the ones that matter.
@@ -1030,36 +1041,93 @@
 
     const radar = panel.radar;
     if (radar && radar.base) {
-      const wrap = el("div", "radar");
-      for (const [className, tiles] of [
-        ["radar-base", radar.base],
-        ["radar-rain", radar.rain || []],
-      ]) {
-        const grid = el("div", `radar-grid ${className}`);
-        grid.style.setProperty("--radar-cols", String(radar.grid || 3));
+      const geo = el("div", "radar");
+      const cols = String(radar.grid || 3);
+      geo.style.setProperty("--radar-cols", cols);
+      // How far to slide the tiles so Kaunas is in the middle rather than in a
+      // corner. Negative because the layer moves left to bring a city on its
+      // right into view. See build_radar for the arithmetic.
+      const shift = radar.shift || [0, 0];
+      geo.style.setProperty("--radar-shift-x", `${(shift[0] || 0) * 100}%`);
+      geo.style.setProperty("--radar-shift-y", `${(shift[1] || 0) * 100}%`);
+
+      const layer = (tiles) => {
+        const node = el("div", "radar-layer");
         for (const tile of tiles) {
           if (!tile) {
             // An empty cell rather than no cell: the grid has to keep its shape
             // or the whole map shifts by one tile and puts Kaunas in the sea.
-            grid.appendChild(el("div", "radar-gap"));
+            node.appendChild(el("div", "radar-gap"));
             continue;
           }
           const img = el("img", "radar-tile");
           img.src = tile;
           img.alt = "";
-          img.loading = "lazy";
-          grid.appendChild(img);
+          node.appendChild(img);
         }
-        wrap.appendChild(grid);
-      }
-      node.appendChild(wrap);
+        return node;
+      };
+
+      const base = layer(radar.base);
+      base.classList.add("radar-base");
+      geo.appendChild(base);
+
+      // One layer per frame, stacked and cross-faded by a class. The newest is
+      // drawn last so it is on top while the others are still loading.
+      // One layer per frame, stacked and cross-faded by a class. The class is
+      // what the stylesheet holds at zero opacity — without it every frame sits
+      // at full opacity on top of the last, which looks like a single working
+      // image and hides the fact that the animation is doing nothing at all.
+      // The label still ticked along, so the loop reported as running.
+      const frames = (radar.frames || []).map((frame) => {
+        const node = layer(frame.tiles);
+        node.classList.add("radar-frame");
+        return node;
+      });
+      for (const frame of frames) geo.appendChild(frame);
+      node.appendChild(geo);
 
       const note = el("p", "radar-note");
-      note.appendChild(
-        el("span", "", radar.time ? `Radar ${radar.time}` : "Radar"),
-      );
+      const stamp = el("span", "radar-time");
+      note.appendChild(stamp);
+      if (radar.from && radar.time && radar.from !== radar.time) {
+        note.appendChild(el("span", "radar-loop", `loop ${radar.from}–${radar.time}`));
+      }
       note.appendChild(el("span", "radar-credit", radar.attribution || ""));
       node.appendChild(note);
+
+      if (frames.length > 1) {
+        const times = (radar.frames || []).map((frame) => frame.time || "");
+        let current = 0;
+        const show = (index) => {
+          frames.forEach((frame, i) => {
+            frame.classList.toggle("is-shown", i === index);
+          });
+          stamp.textContent = `Radar ${times[index]}`;
+        };
+        show(current);
+
+        // Respecting the setting rather than animating regardless. A looping map
+        // is exactly the kind of motion the preference exists for, and the newest
+        // frame on its own is the still image it was before.
+        const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (still) {
+          show(frames.length - 1);
+        } else {
+          // A timer rather than a CSS keyframe animation: the label has to move
+          // with the map, and the number of frames changes with the data, so the
+          // keyframes cannot be written into a stylesheet ahead of time.
+          window.setInterval(() => {
+            current = (current + 1) % frames.length;
+            show(current);
+          }, RADAR_FRAME_MS);
+        }
+      } else if (radar.time) {
+        stamp.textContent = `Radar ${radar.time}`;
+      }
+    } else {
+      node.appendChild(el("p", "wx-label", "Radar"));
+      node.appendChild(el("p", "radar-absent", "Unavailable this morning."));
     }
 
     if (panel.days && panel.days.length > 1) {

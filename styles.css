@@ -1452,130 +1452,153 @@ body {
 
 /* --- the weather --- */
 
+/* No frame of its own. The panel around it already draws one, and a bordered
+   card inside a bordered panel inside a bordered page was three rectangles
+   deep before any content appeared. The same reason the three-day cards below
+   lost theirs. */
+.panel-card.weather {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+}
+
 
 .wx-hero {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+ display: flex;
+ align-items: center;
+ gap: 12px;
 }
 
 /* The temperature is the one number anybody reads before coffee, so it gets the
    display face and everything else on the panel is set around it. */
 .wx-temp {
-  font-family: var(--font-display);
-  font-size: 42px;
-  line-height: 1;
-  color: var(--text-dark);
-  font-variant-numeric: tabular-nums;
-  margin-top: 2px;
+ font-family: var(--font-display);
+ font-size: 42px;
+ line-height: 1;
+ color: var(--text-dark);
+ font-variant-numeric: tabular-nums;
+ margin-top: 2px;
 }
 
 .wx-lead {
-  flex: 1 1 auto;
-  min-width: 0;
+ flex: 1 1 auto;
+ min-width: 0;
 }
 
 .wx-desc {
-  font-family: var(--font-body);
-  font-size: 14px;
-  color: var(--text-dark);
-  margin-top: 3px;
+ font-family: var(--font-body);
+ font-size: 14px;
+ color: var(--text-dark);
+ margin-top: 3px;
 }
 
 /* The day's range, right-aligned opposite the temperature, which is where the
    eye goes looking for it after reading the number. */
 .wx-range {
-  flex: 0 0 auto;
-  text-align: right;
+ flex: 0 0 auto;
+ text-align: right;
 }
 
 .wx-range-line {
-  font-family: var(--font-body);
-  font-size: 12px;
-  color: var(--text-dark);
-  font-variant-numeric: tabular-nums;
+ font-family: var(--font-body);
+ font-size: 12px;
+ color: var(--text-dark);
+ font-variant-numeric: tabular-nums;
 }
 
 .wx-range-low {
-  color: var(--text-light);
+ color: var(--text-light);
 }
 
 .wx-range-sun {
-  font-family: var(--font-body);
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  color: var(--text-light);
-  margin-top: 4px;
+ font-family: var(--font-body);
+ font-size: 9px;
+ letter-spacing: 0.06em;
+ color: var(--text-light);
+ margin-top: 4px;
 }
 
 .wx-detail {
-  font-family: var(--font-body);
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--text-light);
-  margin-top: 10px;
-  padding-top: 9px;
-  border-top: 1px solid rgba(26, 26, 26, 0.07);
+ font-family: var(--font-body);
+ font-size: 11px;
+ line-height: 1.45;
+ color: var(--text-light);
+ margin-top: 10px;
+ padding-top: 9px;
+ border-top: 1px solid rgba(26, 26, 26, 0.07);
 }
 
 .wx-label {
-  font-family: var(--font-body);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-light);
-  margin: 15px 0 8px;
+ font-family: var(--font-body);
+ font-size: 9px;
+ letter-spacing: 0.12em;
+ text-transform: uppercase;
+ color: var(--text-light);
+ margin: 15px 0 8px;
 }
 
 /* The first sits directly under the panel heading, which already has its own
    spacing above it. */
 .wx-label:first-child {
-  margin-top: 0;
+ margin-top: 0;
 }
 
 /* --- the weather drawings --- */
 
 .wx-icon {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+ flex: 0 0 auto;
+ display: inline-flex;
+ align-items: center;
+ justify-content: center;
 }
 
 .wx-icon svg {
-  width: 100%;
-  height: 100%;
+ width: 100%;
+ height: 100%;
 }
 
-.wx-icon--lead { width: 46px; height: 46px; }
-.wx-icon--hour { width: 22px; height: 22px; margin: 3px 0 2px; }
-.wx-icon--day  { width: 28px; height: 28px; margin-bottom: 4px; }
+.wx-icon--lead {
+ width: 46px;
+ height: 46px;
+}
+.wx-icon--hour {
+ width: 22px;
+ height: 22px;
+ margin: 3px 0 2px;
+}
+.wx-icon--day {
+ width: 28px;
+ height: 28px;
+ margin-bottom: 4px;
+}
 
 /* Two colours and two weights, so a rainy afternoon is one glance rather than a
    word. The sun and the bolt take the accent; everything wet is blue-grey. */
 .wi-sun,
 .wi-bolt {
-  fill: var(--accent);
+ fill: var(--accent);
 }
 
 .wi-cloud {
-  fill: #cdd7df;
+ fill: #cdd7df;
 }
 
 .wi-stroke {
-  fill: none;
-  stroke: #7d97ab;
-  stroke-width: 1.6;
-  stroke-linecap: round;
+ fill: none;
+ stroke: #7d97ab;
+ stroke-width: 1.6;
+ stroke-linecap: round;
 }
 
 /* Heavier rain leans the drops, which reads as faster without reading as more. */
 .wi-heavy {
-  stroke-width: 2;
+ stroke-width: 2;
 }
 
 .wi-dot {
-  fill: #a9c3d6;
+ fill: #a9c3d6;
 }
 
 /* --- the hours ahead --- */
@@ -1583,67 +1606,81 @@ body {
 /* Six across. A grid rather than a scrolling strip: six hours is the reach of a
    short forecast, and a row that fits is a row nobody has to swipe. */
 .wx-hours {
-  display: grid;
-  grid-template-columns: repeat(var(--wx-hours, 6), minmax(0, 1fr));
-  gap: 2px;
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(26, 26, 26, 0.07);
+ display: grid;
+ grid-template-columns: repeat(var(--wx-hours, 6), minmax(0, 1fr));
+ gap: 2px;
+ margin-top: 12px;
+ padding-top: 10px;
+ border-top: 1px solid rgba(26, 26, 26, 0.07);
 }
 
 .wx-hour {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 0;
+ display: flex;
+ flex-direction: column;
+ align-items: center;
+ min-width: 0;
 }
 
 .wx-hour-time {
-  font-family: var(--font-body);
-  font-size: 9px;
-  letter-spacing: 0.04em;
-  color: var(--text-light);
-  font-variant-numeric: tabular-nums;
+ font-family: var(--font-body);
+ font-size: 9px;
+ letter-spacing: 0.04em;
+ color: var(--text-light);
+ font-variant-numeric: tabular-nums;
 }
 
 .wx-hour-temp {
-  font-family: var(--font-body);
-  font-size: 12px;
-  color: var(--text-dark);
-  font-variant-numeric: tabular-nums;
+ font-family: var(--font-body);
+ font-size: 12px;
+ color: var(--text-dark);
+ font-variant-numeric: tabular-nums;
 }
 
 /* Only where it is worth knowing — see WX_RAIN_WORTH_SHOWING. */
 .wx-hour-rain {
-  font-family: var(--font-body);
-  font-size: 9px;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-  margin-top: 1px;
+ font-family: var(--font-body);
+ font-size: 9px;
+ color: var(--accent);
+ font-variant-numeric: tabular-nums;
+ margin-top: 1px;
 }
 
 /* --- the map --- */
 
-/* Two absolutely-positioned grids in the same square — the base tiles
-   underneath, the precipitation on top — because the radar tiles are a
-   transparent overlay and there is nothing to see them against on their own. */
+/* The window. The layer is GRID window-widths across and the box shows one of
+   them, so a two-by-two grid shows a single tile — which is what makes this a
+   zoomed-in view of Kaunas rather than a country-wide picture. Everything outside
+   that one window is slack for the centring shift to slide into. */
 .radar {
   position: relative;
   aspect-ratio: 1;
   margin: 14px 0 0;
-  border-radius: 8px;
+  border-radius: 6px;
   overflow: hidden;
   /* A pale blue-grey, so a tile which has not arrived reads as sea or sky rather
      than as a hole in the layout. */
   background: #eef1f4;
 }
 
-.radar-grid {
+/* One grid of tiles per frame, all stacked in the same place and all larger than
+   the window.
+
+   Centred first and then shifted, rather than positioned from a corner: the shift
+   is expressed as an offset from centred — see build_radar — so a city that
+   happens to sit in the middle of its tile needs no shift at all. */
+.radar-layer {
   position: absolute;
-  inset: 0;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--radar-cols, 2) * 100%);
+  aspect-ratio: 1;
   display: grid;
-  grid-template-columns: repeat(var(--radar-cols, 3), 1fr);
-  grid-template-rows: repeat(var(--radar-cols, 3), 1fr);
+  grid-template-columns: repeat(var(--radar-cols, 2), 1fr);
+  grid-template-rows: repeat(var(--radar-cols, 2), 1fr);
+  transform: translate(
+    calc(-50% + var(--radar-shift-x, 0%)),
+    calc(-50% + var(--radar-shift-y, 0%))
+  );
 }
 
 .radar-tile,
@@ -1653,27 +1690,56 @@ body {
   height: 100%;
 }
 
-/* Tiles are 256px squares but the grid cell is not, so the tile is scaled to
-   fill rather than letterboxed — a hair of crop at the edges against a visible
+/* Tiles are 256px squares and the grid cell is bigger, so the tile is scaled to
+   fill rather than letterboxed — a hair of crop at each edge against a visible
    seam between every cell. */
 .radar-tile {
   object-fit: cover;
 }
 
+/* The loop. Cross-faded rather than switched, because at half a second a hard cut
+   reads as a flicker and the shape of a rain band is the thing being watched. */
+.radar-frame {
+  opacity: 0;
+  transition: opacity 0.16s linear;
+}
+
+.radar-frame.is-shown {
+  opacity: 1;
+}
+
 .radar-note {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   font-family: var(--font-body);
   font-size: 8px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-light);
-  margin-top: 6px;
+  margin-top: 7px;
+}
+
+/* The frame the loop is on, in the accent, because it is a number that changes
+   and the eye should be able to find it again after looking away. */
+.radar-time {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.radar-loop {
+  /* Pushed to the middle: the time is the live thing and the credit is the
+     small print, so they sit at opposite ends. */
+  margin-right: auto;
 }
 
 .radar-credit {
   text-align: right;
+}
+
+.radar-absent {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-light);
 }
 
 /* --- three days --- */
@@ -1681,8 +1747,7 @@ body {
 .wx-days {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 14px;
+  gap: 6px;
 }
 
 .wx-day {
@@ -1690,10 +1755,9 @@ body {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 10px 6px 9px;
-  border: 1px solid rgba(26, 26, 26, 0.09);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.6);
+  padding: 10px 4px 9px;
+  border-radius: 8px;
+  background: rgba(26, 26, 26, 0.032);
 }
 
 .wx-day-name {

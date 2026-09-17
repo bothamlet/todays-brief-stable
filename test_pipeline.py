@@ -1112,6 +1112,61 @@ class TestWeather(unittest.TestCase):
             with self.subTest(code=odd):
                 self.assertEqual(self.w.icon_kind(odd), self.w.DEFAULT_KIND)
 
+    def test_the_window_starts_half_a_tile_before_the_point(self) -> None:
+        """Kaunas at zoom 7 is at tile 72.49 across. The grid starts at 71.
+
+        The value has to be treated as an absolute tile coordinate. The first
+        version added a grid offset to the fraction and used the sum as an index,
+        which for 72.49 gave 0 — open ocean, four near-identical blank tiles, and
+        a 16KB file that passed every check in the module.
+        """
+        first, shift = self.w.view_window(72.49, 2)
+        self.assertEqual(first, 71)
+        # 72.49 sits at (72.49 - 71) / 2 = 0.745 of a two-tile grid, so it has to
+        # come back toward the middle by the difference.
+        self.assertAlmostEqual(shift, -0.245, places=3)
+
+    def test_a_fraction_past_the_middle_stays_in_the_same_tile(self) -> None:
+        """The specific shape of the bug: 72.99 must not become tile 0 or tile 1.
+
+        The grid it lands in is [72, 74) — so the point is at 0.495 of it, almost
+        exactly the middle, and needs almost no shift. What matters here is the
+        index, which the broken version computed as 1.
+        """
+        first, shift = self.w.view_window(72.99, 2)
+        self.assertEqual(first, 72)
+        self.assertAlmostEqual(shift, 0.005, places=3)
+
+    def test_a_point_at_the_middle_of_its_tile_needs_no_shift(self) -> None:
+        """72.0 sits exactly half way across a grid spanning [71, 73)."""
+        first, shift = self.w.view_window(72.0, 2)
+        self.assertEqual(first, 71)
+        self.assertAlmostEqual(shift, 0.0, places=6)
+
+    def test_the_shift_never_needs_more_than_half_a_tile(self) -> None:
+        """What makes a two-by-two grid enough for a one-tile window."""
+        for fraction in (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.999):
+            with self.subTest(fraction=fraction):
+                _first, shift = self.w.view_window(72 + fraction, 2)
+                self.assertLessEqual(abs(shift), 0.5)
+
+    def test_an_impossible_coordinate_is_named(self) -> None:
+        for bad in (float("nan"), float("inf")):
+            with self.subTest(value=bad):
+                with self.assertRaises(ValueError) as caught:
+                    self.w.view_window(bad, 2)
+                self.assertIn("tile coordinate", str(caught.exception))
+
+    def test_the_zoom_is_one_rainviewer_actually_serves(self) -> None:
+        """Zoom 8 is not a closer map, it is a picture of an error message.
+
+        RainViewer serves up to seven and returns a 1.3KB card reading "Zoom Level
+        Not Supported" for anything beyond — a valid PNG with a 200, which is how
+        a grid of nine error messages shipped and looked like a working map.
+        """
+        self.assertLessEqual(self.w.ZOOM, self.w.MAX_RADAR_ZOOM)
+        self.assertGreater(self.w.UNSUPPORTED_ZOOM, self.w.MAX_RADAR_ZOOM)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

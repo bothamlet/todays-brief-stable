@@ -38,6 +38,7 @@ Usage:
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
 from datetime import datetime, timezone
@@ -62,9 +63,41 @@ LATITUDE, LONGITUDE = 54.8972, 23.8861
 # sunrise and getting it wrong twice a year.
 TIMEZONE = "Europe/Vilnius"
 
-# Zoom and grid. See the module docstring: seven and three.
-ZOOM = 7
-GRID = 3
+# The closest zoom RainViewer serves. Beyond it the service returns an error card
+# rather than a tile — a valid PNG with a 200 — so ZOOM must not exceed this, and
+# it is written down separately from ZOOM precisely so that a future change to one
+# does not quietly pass the other's limit. `test_the_zoom_is_one_rainviewer_
+# actually_serves` holds the two together.
+MAX_RADAR_ZOOM = 7
+
+# Zoom 7, which is the closest RainViewer actually serves. Eight is not a smaller
+# square of the same map: it is a card reading "Zoom Level Not Supported", served
+# as a valid PNG with a 200, which is why the first attempt at this shipped a grid
+# of nine error messages and looked like a working map in the JSON.
+#
+# It is still a zoomed-in view — closer to a street atlas than the country-wide
+# picture that came before — because the window below shows one tile's width of
+# this grid rather than all of it.
+ZOOM = MAX_RADAR_ZOOM
+
+# A zoom RainViewer certainly refuses, used once per run to fingerprint its error
+# card. Derived rather than written out, so that raising the ceiling above moves
+# this with it instead of leaving the fingerprint asking for a zoom that now works
+# — which would make every tile compare unequal to it and pass. See
+# error_card_hash.
+UNSUPPORTED_ZOOM = MAX_RADAR_ZOOM + 4
+
+# Tiles per axis in the downloaded grid, and therefore how many window-widths the
+# layer is. Two, not three: the window is one tile wide and the centring shift
+# moves it at most half a tile either way, so a two-by-two grid covers everything
+# that can be seen. Three would download nine tiles per frame and draw four of
+# them.
+GRID = 2
+
+# How many radar frames the loop animates. Six covers the hour leading up to now
+# at RainViewer's ten-minute steps, and six frames of four tiles is about 500KB —
+# the animation is not what makes this file large.
+LOOP_FRAMES = 6
 
 OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 RAINVIEWER_INDEX = "https://api.rainviewer.com/public/weather-maps.json"
@@ -192,6 +225,20 @@ def compass(degrees: Any) -> str:
 # --- Tiles -------------------------------------------------------------------
 
 
+def tile_frac(lat: float, lon: float, zoom: int) -> tuple[float, float]:
+    """Where a point falls in the tile grid, as a fraction rather than an index.
+
+    The integer version throws away the part that decides whether a map is
+    centred on a city or has it jammed against an edge — which is the whole
+    difference between "zoomed in on Kaunas" and "somewhere near Kaunas".
+    """
+    count = 2**zoom
+    return (
+        (lon + 180.0) / 360.0 * count,
+        (1.0 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2.0 * count,
+    )
+
+
 def tile_number(lat: float, lon: float, zoom: int) -> tuple[int, int]:
     """The slippy-map tile containing a point.
 
@@ -218,17 +265,27 @@ def tile_number(lat: float, lon: float, zoom: int) -> tuple[int, int]:
     return max(0, min(count - 1, x)), max(0, min(count - 1, y))
 
 
-def fetch_tile(session: requests.Session, url: str) -> str | None:
+def fetch_tile(
+    session: requests.Session, url: str, error_hash: str | None = None
+) -> str | None:
     """One tile as a data URI, or None.
 
     None rather than an exception: a tile server being down should cost the map a
     corner, not the morning its weather.
+
+    `error_hash` is what stops a tile service answering with a picture instead of
+    a refusal. RainViewer serves zoom levels up to seven and returns a 1.3KB card
+    reading "Zoom Level Not Supported" for anything beyond — a perfectly valid
+    PNG that passes a status check, a content-type check and a magic-byte check,
+    and that drew a tidy nine-tile map of error messages before anyone noticed.
     """
     try:
         response = session.get(
             url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT
         )
         if response.status_code != 200 or response.content[:4] != b"\x89PNG":
+            return None
+        if error_hash and fingerprint(response.content) == error_hash:
             return None
         return "data:image/png;base64," + base64.b64encode(response.content).decode(
             "ascii"
@@ -237,8 +294,52 @@ def fetch_tile(session: requests.Session, url: str) -> str | None:
         return None
 
 
-def radar_frame(session: requests.Session) -> tuple[str, str] | None:
-    """The newest radar frame: its tile path template and the time it is from."""
+def fingerprint(payload: bytes) -> str:
+    """A stable digest of a tile, for comparing one against another.
+
+    Nothing to do with integrity — both sides of every comparison are bytes this
+    process just downloaded — but sha256 rather than md5 because the linters flag
+    md5 on sight and arguing with a linter about a fingerprint costs more than
+    hashing 1.3KB twice.
+    """
+    return hashlib.sha256(payload).hexdigest()
+
+
+def error_card_hash(session: requests.Session, host: str, path: str) -> str | None:
+    """The fingerprint of the tile RainViewer serves for a zoom it does not have.
+
+    Asked once per run, at a zoom it certainly refuses, and compared against
+    everything else. The card is byte-identical every time, which makes this
+    exact — where guessing from file size cannot separate an error card from a
+    legitimately empty radar tile with no rain in it, since both are about a
+    kilobyte and both are valid PNGs.
+    """
+    x, y = tile_number(LATITUDE, LONGITUDE, UNSUPPORTED_ZOOM)
+    try:
+        response = session.get(
+            f"{host}{path}/256/{UNSUPPORTED_ZOOM}/{x}/{y}/2/1_1.png",
+            headers={"User-Agent": USER_AGENT},
+            timeout=TIMEOUT,
+        )
+        if response.status_code != 200 or response.content[:4] != b"\x89PNG":
+            return None
+        return fingerprint(response.content)
+    except requests.RequestException:
+        return None
+
+
+def radar_frames(session: requests.Session) -> tuple[str, list[tuple[str, str]]] | None:
+    """The recent radar frames: the tile host, and a list of (path, local time).
+
+    A list rather than the newest one, because the panel animates them. RainViewer
+    keeps around thirteen frames of the last two hours at roughly ten-minute
+    steps; the most recent `LOOP_FRAMES` are taken, so the loop covers the hour
+    leading up to now, which is the hour that says where the rain is going.
+
+    `nowcast` is empty more often than not, so the loop is built from `past`
+    alone rather than mixing forecast frames into animation. A loop that jumps
+    from observation to prediction looks like a glitch.
+    """
     try:
         response = session.get(
             RAINVIEWER_INDEX, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT
@@ -249,66 +350,133 @@ def radar_frame(session: requests.Session) -> tuple[str, str] | None:
     except (requests.RequestException, ValueError):
         return None
 
-    frames = ((payload.get("radar") or {}).get("past") or [])
-    if not frames:
-        return None
-
-    # The last of `past` is the most recent, not the first. `nowcast` is empty
-    # more often than not, so it is not worth preferring when it exists.
-    newest = frames[-1]
+    past = (payload.get("radar") or {}).get("past") or []
     host = str(payload.get("host") or "").rstrip("/")
-    path = str(newest.get("path") or "")
-    if not host or not path:
+    if not past or not host:
         return None
 
+    frames: list[tuple[str, str]] = []
+    for entry in past[-LOOP_FRAMES:]:
+        path = str(entry.get("path") or "")
+        if not path:
+            continue
+        try:
+            stamp = datetime.fromtimestamp(int(entry["time"]), tz=timezone.utc)
+        except (KeyError, TypeError, ValueError, OSError):
+            continue
+        # Local, because the label beside the map is local and a radar stamped
+        # in UTC is two or three hours out for most of the year.
+        frames.append((path, stamp.astimezone().strftime("%H:%M")))
+
+    return (host, frames) if frames else None
+
+
+def view_window(frac: float, grid: int) -> tuple[int, float]:
+    """Where the downloaded grid starts, and how far to slide it.
+
+    `frac` is an absolute tile coordinate with a fraction on it — at zoom 7
+    Kaunas is at 72.49 across, not at 1.49. Getting that wrong is not a subtle
+    error: mixing a grid offset into it and then using the result as an index
+    fetched tiles 0 and 1, which are open ocean, and the map came back as four
+    near-identical blank images and a 16KB file that every check passed.
+
+    The window is one tile wide and centred on the point, so the grid starts half
+    a tile before it and the point lands somewhere inside. The second value is
+    how far that somewhere is from the middle, as a fraction of the grid.
+    """
     try:
-        stamp = datetime.fromtimestamp(int(newest["time"]), tz=timezone.utc)
-    except (KeyError, TypeError, ValueError, OSError):
-        return None
-
-    # The panel is local time, so the frame label is too.
-    local = stamp.astimezone()
-    return f"{host}{path}", local.strftime("%H:%M")
+        first = math.floor(frac - 0.5)
+    except (ValueError, OverflowError) as error:
+        raise ValueError(f"cannot place tile coordinate {frac!r}") from error
+    return first, 0.5 - (frac - first) / grid
 
 
 def build_radar(session: requests.Session) -> dict[str, Any] | None:
-    """A three-by-three grid of base and radar tiles around Kaunas."""
-    frame = radar_frame(session)
-    if not frame:
+    """Base map, and a stack of radar frames over it, centred on Kaunas."""
+    index = radar_frames(session)
+    if not index:
         return None
-    tile_path, frame_time = frame
+    host, frames = index
 
-    centre_x, centre_y = tile_number(LATITUDE, LONGITUDE, ZOOM)
-    offset = GRID // 2
+    # What RainViewer answers with when asked for a zoom it does not serve. The
+    # panel below draws at zoom seven because that is as close as it goes, and
+    # this is what says so rather than trusting the constant to stay true.
+    error_hash = error_card_hash(session, host, frames[-1][0])
+
+    # Fractional, not integer: the city is almost never in the middle of its own
+    # tile — Kaunas sits at 0.99 across and 0.10 down, which is the top-right
+    # corner — so a grid built from whole tiles puts it hard against an edge with
+    # most of the map showing somewhere nobody asked about.
+    frac_x, frac_y = tile_frac(LATITUDE, LONGITUDE, ZOOM)
+
+    # Which tiles the window can actually reach, and the shift that puts the city
+    # in the middle of it.
+    #
+    # The window is one tile wide — it shows a single tile's worth of the grid —
+    # and the shift moves it at most half a tile either way, so two tiles an axis
+    # is everything that can be seen. Three would download nine per frame and draw
+    # four of them, which at six frames is most of a megabyte spent on tiles that
+    # never reach a pixel.
+    corners: list[int] = []
+    shift: list[float] = []
+    for frac in (frac_x, frac_y):
+        first, offset = view_window(frac, GRID)
+        corners.append(first)
+        shift.append(offset)
+
+    start_x, start_y = corners
+    offset_x, offset_y = shift
+
+    def axis(start: int) -> list[int]:
+        return [start + i for i in range(GRID)]
+
+    xs, ys = axis(start_x), axis(start_y)
 
     base: list[str | None] = []
-    rain: list[str | None] = []
-    for dy in range(-offset, offset + 1):
-        for dx in range(-offset, offset + 1):
-            x, y = centre_x + dx, centre_y + dy
+    for y in ys:
+        for x in xs:
             base.append(
-                fetch_tile(session, BASEMAP.format(z=ZOOM, x=x, y=y))
-            )
-            # Colour scheme 2, smoothed, with snow shown. See RainViewer's docs.
-            rain.append(
-                fetch_tile(session, f"{tile_path}/256/{ZOOM}/{x}/{y}/2/1_1.png")
+                fetch_tile(session, BASEMAP.format(z=ZOOM, x=x, y=y), error_hash)
             )
 
     if any(tile is None for tile in base):
-        # A map with a hole in it is worse than no map: the hole is read as "no
+        # A map with a hole in it is worse than no map: the hole reads as "no
         # weather there" rather than "that tile did not download".
+        return None
+
+    # One grid per frame. Radar tiles can individually fail and the map still
+    # reads — a missing precipitation tile is indistinguishable from no
+    # precipitation, which is what it usually is.
+    stacks: list[dict[str, Any]] = []
+    for path, when in frames:
+        tiles: list[str] = []
+        for y in ys:
+            for x in xs:
+                tiles.append(
+                    fetch_tile(
+                        session,
+                        f"{host}{path}/256/{ZOOM}/{x}/{y}/2/1_1.png",
+                        error_hash,
+                    )
+                    or ""
+                )
+        stacks.append({"time": when, "tiles": tiles})
+
+    if not stacks:
         return None
 
     return {
         "zoom": ZOOM,
         "grid": GRID,
         "centre": [LATITUDE, LONGITUDE],
+        "shift": [offset_x, offset_y],
+        "origin": [start_x, start_y],
         "base": base,
-        # Radar tiles can individually fail and the map still reads: a missing
-        # precipitation tile is indistinguishable from no precipitation, which is
-        # what it usually is.
-        "rain": [tile or "" for tile in rain],
-        "time": frame_time,
+        "frames": stacks,
+        # The label and the credit belong to the newest frame, which is what the
+        # still image shows and what the loop settles on.
+        "time": stacks[-1]["time"],
+        "from": stacks[0]["time"],
         "attribution": ATTRIBUTION,
     }
 
