@@ -99,6 +99,12 @@
   // three cells along from being seen at all.
   const WX_RAIN_WORTH_SHOWING = 15;
 
+  // The chance at which the radar footer calls the next hour wet rather than
+  // merely damp. Higher than the line above, because "next rain 16:00" is a claim
+  // about the day and a 20% hour is not one — the threshold that decides whether
+  // to draw a number is not the threshold that decides whether to promise rain.
+  const WX_RAIN_CERTAIN = 50;
+
   /**
    * The pages, and where each one's stories come from.
    *
@@ -204,6 +210,27 @@
     play: '<svg viewBox="0 0 16 16"><path class="ico-solid" d="M5.4 3.2l7 4.8-7 4.8z"/></svg>',
     pause:
       '<svg viewBox="0 0 16 16"><path class="ico-solid" d="M5 3.4h2v9.2H5zM9 3.4h2v9.2H9z"/></svg>',
+    // The weather rows. Drawn small and stroked, because they sit in a line of
+    // small capitals and a filled shape at this size reads as a smudge.
+    drop:
+      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M8 2.4s4 4.4 4 7a4 4 0 0 1-8 0c0-2.6 4-7 4-7z"/></g></svg>',
+    thermometer:
+      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M9.4 9.4V3.6a1.4 1.4 0 0 0-2.8 0v5.8a2.6 2.6 0 1 0 2.8 0z"/></g></svg>',
+    wind:
+      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M1.8 6.2h8.4a2 2 0 1 0-2-2"/>' +
+      '<path d="M1.8 9.6h10.6a2 2 0 1 1-2 2"/></g></svg>',
+    gauge:
+      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M2.4 12.2a6.6 6.6 0 1 1 11.2 0z"/>' +
+      '<path d="M8 12.2l3-3.6"/></g></svg>',
+    sunrise:
+      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M2.2 13.4h11.6"/>' +
+      '<path d="M4.6 10.4a3.4 3.4 0 0 1 6.8 0"/><path d="M8 1.8v2.4M3.4 4.2l1.4 1.4M12.6 4.2l-1.4 1.4"/></g></svg>',
+    clock:
+      '<svg viewBox="0 0 16 16"><g class="ico-line"><circle cx="8" cy="8" r="6"/>' +
+      '<path d="M8 4.4V8l2.4 1.6"/></g></svg>',
+    map:
+      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M1.8 4l4.2-2 4 2 4.2-2v10l-4.2 2-4-2-4.2 2z"/>' +
+      '<path d="M6 2v10M10 4v10"/></g></svg>',
   };
 
   // Left first, then centre, then right. Grouped rather than interleaved: the
@@ -965,7 +992,41 @@
     if (glyph) span.appendChild(glyph);
     return span;
   }
+  /**
+   * One row of small facts, each with an icon, divided by hairlines.
+   *
+   * The dividers are borders on the cells rather than elements between them: a
+   * rule that is part of the cell cannot end up as the last thing in the row, and
+   * a trailing rule is the sort of detail that only shows up in a screenshot.
+   */
+  function wxFactRow(facts, className) {
+    const row = el("div", `wx-facts${className ? ` ${className}` : ""}`);
+    row.style.setProperty("--wx-cols", String(Math.max(1, facts.length)));
+    for (const fact of facts) {
+      const cell = el("div", "wx-fact");
+      const glyph = icon(fact.icon);
+      if (glyph) cell.appendChild(glyph);
+      const body = el("div", "wx-fact-body");
+      body.appendChild(el("p", "wx-fact-label", fact.label));
+      const value = el("p", "wx-fact-value", fact.value);
+      if (fact.sub) value.appendChild(el("span", "wx-fact-sub", fact.sub));
+      body.appendChild(value);
+      cell.appendChild(body);
+      row.appendChild(cell);
+    }
+    return row;
+  }
 
+  /**
+   * The weather: what it is doing, four facts, the hours ahead, the radar, and
+   * three days.
+   *
+   * Laid out after the weather mock. Its two typographic habits are the ones
+   * worth copying, because they are what the rest of this paper already does:
+   * every figure is set in the display face and every label is a small capital in
+   * the body face. A temperature in Inter beside a headline in Fraunces was the
+   * thing making this panel look like it came from somewhere else.
+   */
   function weatherPanel(panel) {
     const node = card(panel.league || "");
     node.classList.add("weather");
@@ -973,59 +1034,89 @@
     const now = panel.current || {};
     const today = (panel.days && panel.days[0]) || {};
 
-    node.appendChild(el("p", "wx-label", "Today's forecast"));
+    // The head is centred and two lines deep, which reads as a masthead for the
+    // block rather than as a label with a note beside it.
+    const head = el("div", "wx-head");
+    head.appendChild(el("p", "wx-place", panel.title || ""));
+    head.appendChild(el("p", "wx-kicker", "Today's weather"));
+    node.appendChild(head);
 
-    // The hero: the drawing, the temperature, and the day's range opposite.
+    // The hero, in two halves with a rule between: what it is doing, and what to
+    // expect. The split earns its place — the left answers "what is it like out"
+    // and the right answers "do I need a coat".
     const hero = el("div", "wx-hero");
-    const glyph = weatherIcon(now.kind, "wx-icon--lead");
-    if (glyph) hero.appendChild(glyph);
 
-    const lead = el("div", "wx-lead");
-    lead.appendChild(
+    const main = el("div", "wx-hero-main");
+    const glyph = weatherIcon(now.kind, "wx-icon--lead");
+    if (glyph) main.appendChild(glyph);
+    const figure = el("div", "wx-hero-figure");
+    figure.appendChild(
       el("p", "wx-temp", `${Math.round(Number(now.temperature) || 0)}°`),
     );
-    lead.appendChild(el("p", "wx-desc", now.description || ""));
-    hero.appendChild(lead);
+    figure.appendChild(el("p", "wx-desc", now.description || ""));
+    main.appendChild(figure);
+    hero.appendChild(main);
 
-    const range = el("div", "wx-range");
+    const range = el("div", "wx-hero-range");
     if (today.max != null) {
-      range.appendChild(
-        el("p", "wx-range-line", `High ${Math.round(today.max)}°`),
-      );
+      range.appendChild(el("p", "wx-range-line", `High ${Math.round(today.max)}°`));
     }
     if (today.min != null) {
       range.appendChild(
-        el("p", "wx-range-line wx-range-low", `Low ${Math.round(today.min)}°`),
+        el("p", "wx-range-line", `Low ${Math.round(today.min)}°`),
       );
     }
     if (today.sunrise) {
-      range.appendChild(
-        el("p", "wx-range-sun", `${today.sunrise} → ${today.sunset}`),
+      const sun = el("p", "wx-sun");
+      const sunGlyph = icon("sunrise");
+      if (sunGlyph) sun.appendChild(sunGlyph);
+      sun.appendChild(
+        document.createTextNode(`${today.sunrise} – ${today.sunset}`),
       );
+      range.appendChild(sun);
     }
     hero.appendChild(range);
     node.appendChild(hero);
 
+    // The four facts. Pressure is the one that needed fetching; the rest were
+    // already in the response and were being dropped on the floor.
     node.appendChild(
-      el(
-        "p",
-        "wx-detail",
-        [
-          `Feels ${Math.round(Number(now.feels_like) || 0)}°`,
-          now.humidity == null ? "" : `${now.humidity}% humidity`,
-          now.wind == null
-            ? ""
-            : `wind ${now.wind} km/h ${now.wind_direction || ""}`.trim(),
-          panel.updated ? `at ${panel.updated}` : "",
-        ]
-          .filter(Boolean)
-          .join(" · "),
-      ),
+      wxFactRow([
+        {
+          icon: "thermometer",
+          label: "Feels like",
+          value:
+            now.feels_like == null
+              ? "—"
+              : `${Math.round(Number(now.feels_like))}°`,
+        },
+        {
+          icon: "drop",
+          label: "Humidity",
+          value: now.humidity == null ? "—" : `${now.humidity}%`,
+        },
+        {
+          icon: "wind",
+          label: "Wind",
+          value: now.wind == null ? "—" : `${now.wind} km/h`,
+          sub: now.wind_direction || "",
+        },
+        {
+          icon: "gauge",
+          label: "Pressure",
+          value: now.pressure == null ? "—" : `${now.pressure} hPa`,
+        },
+      ]),
     );
 
-    // The hours ahead. Six across, because that is what fits at a readable size
-    // and it reaches far enough to show the afternoon turning.
+    // The hours, with a heading of their own. Six columns, which is the reach of
+    // a short forecast and the most that fits at a readable size.
     if (panel.hours && panel.hours.length) {
+      const section = el("div", "wx-section");
+      section.appendChild(el("p", "wx-label", "Hourly forecast"));
+      if (panel.updated) section.appendChild(el("p", "wx-note", panel.updated));
+      node.appendChild(section);
+
       const strip = el("div", "wx-hours");
       strip.style.setProperty("--wx-hours", String(panel.hours.length));
       for (const hour of panel.hours) {
@@ -1034,51 +1125,50 @@
         const art = weatherIcon(hour.kind, "wx-icon--hour");
         if (art) cell.appendChild(art);
         cell.appendChild(
-          el(
-            "p",
-            "wx-hour-temp",
-            `${Math.round(Number(hour.temperature) || 0)}°`,
-          ),
+          el("p", "wx-hour-temp", `${Math.round(Number(hour.temperature) || 0)}°`),
         );
-        // The chance of rain only where it is worth knowing. A column of 0%s is
-        // noise, and the eye stops reading the ones that matter.
         const chance = Number(hour.probability);
         if (Number.isFinite(chance) && chance >= WX_RAIN_WORTH_SHOWING) {
-          cell.appendChild(el("p", "wx-hour-rain", `${chance}%`));
+          const rain = el("p", "wx-hour-rain");
+          const rainGlyph = icon("drop");
+          if (rainGlyph) rain.appendChild(rainGlyph);
+          rain.appendChild(document.createTextNode(`${chance}%`));
+          cell.appendChild(rain);
+        } else {
+          cell.appendChild(el("p", "wx-hour-rain wx-hour-rain--quiet", ""));
         }
         strip.appendChild(cell);
       }
       node.appendChild(strip);
     }
 
+    // The map.
     const radar = panel.radar;
     if (radar && radar.base) {
       const geo = el("div", "radar");
-      const cols = String(radar.grid || 3);
+      const cols = String(radar.grid || 2);
       geo.style.setProperty("--radar-cols", cols);
       geo.style.setProperty("--radar-magnify", String(RADAR_MAGNIFY));
-      // How far to slide the tiles so Kaunas is in the middle rather than in a
-      // corner. Negative because the layer moves left to bring a city on its
-      // right into view. See build_radar for the arithmetic.
+
       const shift = radar.shift || [0, 0];
       geo.style.setProperty("--radar-shift-x", `${(shift[0] || 0) * 100}%`);
       geo.style.setProperty("--radar-shift-y", `${(shift[1] || 0) * 100}%`);
 
       const layer = (tiles) => {
-        const node = el("div", "radar-layer");
+        const grid = el("div", "radar-layer");
         for (const tile of tiles) {
           if (!tile) {
             // An empty cell rather than no cell: the grid has to keep its shape
             // or the whole map shifts by one tile and puts Kaunas in the sea.
-            node.appendChild(el("div", "radar-gap"));
+            grid.appendChild(el("div", "radar-gap"));
             continue;
           }
           const img = el("img", "radar-tile");
           img.src = tile;
           img.alt = "";
-          node.appendChild(img);
+          grid.appendChild(img);
         }
-        return node;
+        return grid;
       };
 
       const base = layer(radar.base);
@@ -1089,23 +1179,24 @@
       // what the stylesheet holds at zero opacity — without it every frame sits
       // at full opacity on top of the last, which looks like a single working
       // image and hides the fact that the animation is doing nothing at all.
-      // The label still ticked along, so the loop reported as running.
       const frames = (radar.frames || []).map((frame) => {
-        const node = layer(frame.tiles);
-        node.classList.add("radar-frame");
-        return node;
+        const node2 = layer(frame.tiles);
+        node2.classList.add("radar-frame");
+        return node2;
       });
       for (const frame of frames) geo.appendChild(frame);
+
+      // The marker, in the window rather than in the layer: the city is at the
+      // middle of the view by construction — see build_radar — so this is a fixed
+      // dot, and it is what makes the map a map of somewhere.
+      if (Number.isFinite(Number(shift[0]))) {
+        geo.appendChild(el("span", "radar-marker"));
+      }
       node.appendChild(geo);
 
       const times = (radar.frames || []).map((frame) => frame.time || "");
       const stamp = el("span", "radar-time");
 
-      // The bar: play, scrub, and the frame the map is on.
-      //
-      // A slider rather than dots or arrows because the thing being chosen is a
-      // point in time, and a range input already behaves like one — drag it and
-      // you are looking at an hour ago, and there is nothing to explain.
       const bar = el("div", "radar-bar");
       const scrub = el("input", "radar-scrub");
       scrub.type = "range";
@@ -1129,16 +1220,16 @@
             frame.classList.toggle("is-shown", i === index);
           });
           scrub.value = String(index);
-          stamp.textContent = `Radar ${times[index]}`;
+          stamp.textContent = times[index] || "";
         };
 
         const stop = () => {
           running = false;
           if (timer) window.clearInterval(timer);
           timer = 0;
-          const glyph = svgFrom(ICONS.play);
+          const glyph2 = svgFrom(ICONS.play);
           play.replaceChildren();
-          if (glyph) play.appendChild(glyph);
+          if (glyph2) play.appendChild(glyph2);
           play.setAttribute("aria-label", "Play the radar loop");
           play.classList.remove("is-playing");
         };
@@ -1146,15 +1237,11 @@
         const start = () => {
           if (running) return;
           running = true;
-          const glyph = svgFrom(ICONS.pause);
+          const glyph2 = svgFrom(ICONS.pause);
           play.replaceChildren();
-          if (glyph) play.appendChild(glyph);
+          if (glyph2) play.appendChild(glyph2);
           play.setAttribute("aria-label", "Pause the radar loop");
           play.classList.add("is-playing");
-          // A timer rather than a CSS keyframe animation: the scrubber and the
-          // label have to move with the map, and the number of frames changes
-          // with the data, so the keyframes cannot be written into a stylesheet
-          // ahead of time.
           timer = window.setInterval(() => {
             show((current + 1) % frames.length);
           }, RADAR_FRAME_MS);
@@ -1162,9 +1249,9 @@
 
         play.addEventListener("click", () => (running ? stop() : start()));
 
-        // Dragging stops it. The point of a scrubber is to look at one frame,
-        // and an animation that carries on underneath the hand doing the
-        // looking is fighting the reader.
+        // Dragging stops it. The point of a scrubber is to look at one frame, and
+        // an animation that carries on underneath the hand doing the looking is
+        // fighting the reader.
         scrub.addEventListener("input", () => {
           stop();
           show(Number(scrub.value) || 0);
@@ -1173,41 +1260,80 @@
         show(0);
 
         // Respecting the setting rather than animating regardless: a looping map
-        // is exactly the kind of motion the preference exists for, and the
-        // newest frame on its own is the still image it was before. The scrubber
+        // is exactly the kind of motion the preference exists for. The scrubber
         // stays, so the earlier frames are still reachable.
-        const still = window.matchMedia(
-          "(prefers-reduced-motion: reduce)",
-        ).matches;
-        if (still) {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
           show(frames.length - 1);
           stop();
         } else {
           start();
         }
       } else {
-        const glyph = svgFrom(ICONS.play);
-        if (glyph) play.appendChild(glyph);
+        const glyph2 = svgFrom(ICONS.play);
+        if (glyph2) play.appendChild(glyph2);
         play.disabled = true;
         scrub.disabled = true;
-        stamp.textContent = radar.time ? `Radar ${radar.time}` : "Radar";
+        stamp.textContent = radar.time || "";
       }
 
       bar.appendChild(play);
       bar.appendChild(scrub);
-      bar.appendChild(stamp);
       node.appendChild(bar);
 
-      if (radar.attribution) {
-        node.appendChild(el("p", "radar-credit", radar.attribution));
+      const wetIndex = (panel.hours || []).findIndex(
+        (hour) => Number(hour.probability) >= WX_RAIN_CERTAIN,
+      );
+      // The row starts at the current hour, so finding rain there means it is
+      // raining now — and "next rain 12:00" at half past twelve is a claim about
+      // the future that the present has already contradicted.
+      const wet = !panel.hours || wetIndex < 0
+        ? "None today"
+        : wetIndex === 0
+          ? "Now"
+          : panel.hours[wetIndex].time;
+      const foot = el("div", "wx-facts radar-foot");
+      foot.style.setProperty("--wx-cols", "3");
+      const cells = [
+        { icon: "clock", label: "Radar", value: stamp },
+        {
+          icon: "drop",
+          label: "Next rain",
+          value: wet,
+        },
+        {
+          icon: "map",
+          label: radar.attribution || "",
+          value: "",
+        },
+      ];
+      for (const item of cells) {
+        const cell = el("div", "wx-fact");
+        const glyph2 = icon(item.icon);
+        if (glyph2) cell.appendChild(glyph2);
+        const body = el("div", "wx-fact-body");
+        if (item.label) body.appendChild(el("p", "wx-fact-label", item.label));
+        if (typeof item.value === "string") {
+          if (item.value) body.appendChild(el("p", "wx-fact-value", item.value));
+        } else {
+          const line = el("p", "wx-fact-value");
+          line.appendChild(item.value);
+          body.appendChild(line);
+        }
+        cell.appendChild(body);
+        foot.appendChild(cell);
       }
+      node.appendChild(foot);
     } else {
-      node.appendChild(el("p", "wx-label", "Radar"));
-      node.appendChild(el("p", "radar-absent", "Unavailable this morning."));
+      node.appendChild(el("p", "radar-absent", "Radar unavailable this morning."));
     }
 
     if (panel.days && panel.days.length > 1) {
-      node.appendChild(el("p", "wx-label", "Three days"));
+      // In a section wrapper like the hourly heading, so the two labels sit the
+      // same distance from what is above them.
+      const section = el("div", "wx-section");
+      section.appendChild(el("p", "wx-label", "Three days"));
+      node.appendChild(section);
+
       const row = el("div", "wx-days");
       for (const day of panel.days.slice(1, 4)) {
         const cell = el("div", "wx-day");
@@ -1216,14 +1342,14 @@
         cell.appendChild(el("p", "wx-day-name", day.weekday || ""));
         cell.appendChild(el("p", "wx-day-desc", day.description || ""));
         cell.appendChild(
-          el(
-            "p",
-            "wx-day-temp",
-            `${Math.round(day.min)}°/${Math.round(day.max)}°`,
-          ),
+          el("p", "wx-day-temp", `${Math.round(day.min)}°/${Math.round(day.max)}°`),
         );
         if (day.probability != null) {
-          cell.appendChild(el("p", "wx-day-rain", `${day.probability}%`));
+          const rain = el("p", "wx-day-rain");
+          const rainGlyph = icon("drop");
+          if (rainGlyph) rain.appendChild(rainGlyph);
+          rain.appendChild(document.createTextNode(`${day.probability}%`));
+          cell.appendChild(rain);
         }
         row.appendChild(cell);
       }
@@ -1269,7 +1395,8 @@
         return node;
       }
       case "weather": {
-        const node = panelShell(panel, "cloud");
+        const node = el("section", "panel panel--bare");
+        node.dataset.league = panel.league || "";
         node.appendChild(weatherPanel(panel));
         return node;
       }

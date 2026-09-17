@@ -208,6 +208,19 @@ def icon_kind(code: Any) -> str:
     return DEFAULT_KIND
 
 
+def _rounded(value: Any) -> int | None:
+    """A whole number, or None.
+
+    Surface pressure arrives as 1017.9 and humidity as 85.0, and nobody has ever
+    wanted the decimal. None rather than a dash: the renderer decides how to show
+    an absence, and a dash here would be a string pretending to be a number.
+    """
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def compass(degrees: Any) -> str:
     """A wind direction as a point, for a reader rather than a forecast model.
 
@@ -490,7 +503,8 @@ def fetch_forecast(session: requests.Session) -> dict[str, Any] | None:
         "longitude": LONGITUDE,
         "current": (
             "temperature_2m,apparent_temperature,relative_humidity_2m,"
-            "precipitation,weather_code,wind_speed_10m,wind_direction_10m,is_day"
+            "precipitation,weather_code,wind_speed_10m,wind_direction_10m,is_day,"
+            "surface_pressure"
         ),
         "daily": (
             "weather_code,temperature_2m_max,temperature_2m_min,"
@@ -607,6 +621,10 @@ def build_panel(payload: dict[str, Any], radar: dict[str, Any] | None) -> dict[s
             "precipitation": current.get("precipitation"),
             "wind": current.get("wind_speed_10m"),
             "wind_direction": compass(current.get("wind_direction_10m")),
+            # Surface pressure, which is the one a barometer reads and the one the
+            # mock shows. Rounded here rather than in the renderer: it arrives as
+            # 1017.9 and nobody has ever wanted the decimal.
+            "pressure": _rounded(current.get("surface_pressure")),
             "is_day": bool(current.get("is_day")),
         },
         "days": days,
