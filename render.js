@@ -37,10 +37,6 @@
   // The Lietuva page has its own beat too — Lithuanian newsrooms, not Lithuania as
   // the world roster happens to report it. See fetch_lietuva.py.
   const LIETUVA_URL = "data/lietuva.json";
-  // The weather for Kaunas, drawn above the Lietuva news — see fetch_weather.py.
-  // A panel rather than a page: it is one map and four numbers, and breakfast is
-  // the only time of day anybody looks at it.
-  const WEATHER_URL = "data/weather.json";
   // Europe is the odd one out: it has no beat of its own, because the world
   // pipeline already classifies a region on every story and nothing was reading
   // it. See fetch_europe.py.
@@ -80,31 +76,6 @@
   // than twenty-four so a slightly late 07:00 run never trips it by accident.
   const STALE_AFTER_HOURS = 30;
 
-  // How much the map is magnified beyond its native tiles.
-  //
-  // RainViewer's radar tops out at zoom seven, where a pixel is about 700 metres.
-  // There is no closer radar to fetch, so "closer" means showing less of what we
-  // have — the layer is drawn this much larger and the window therefore takes in
-  // that much less of it. Past about two the tiles are visibly soft, and the rain
-  // cells are the only thing that stays readable because they were never sharp.
-  const RADAR_MAGNIFY = 1.7;
-
-  // How long each radar frame holds before the loop moves on. Six frames at this
-  // speed is a three-second loop: long enough to read a shape moving, short enough
-  // that nobody waits for the frame they want.
-  const RADAR_FRAME_MS = 500;
-
-  // Below this, an hourly chance of rain is not worth a line in the weather row.
-  // A column of 0%s and 3%s down it is noise, and noise is what stops the 80%
-  // three cells along from being seen at all.
-  const WX_RAIN_WORTH_SHOWING = 15;
-
-  // The chance at which the radar footer calls the next hour wet rather than
-  // merely damp. Higher than the line above, because "next rain 16:00" is a claim
-  // about the day and a 20% hour is not one — the threshold that decides whether
-  // to draw a number is not the threshold that decides whether to promise rain.
-  const WX_RAIN_CERTAIN = 50;
-
   /**
    * The pages, and where each one's stories come from.
    *
@@ -127,10 +98,6 @@
       title: "Lietuva",
       url: LIETUVA_URL,
       presorted: true,
-      // Panels drawn above the news, before the cards. The weather file holds a
-      // list of them, the same shape fetch_stats.py writes, so the same builders
-      // render both.
-      panels: WEATHER_URL,
     },
     {
       container: "techStories",
@@ -205,32 +172,6 @@
       '<path d="M2 6.6h12M5.2 1.8v2.8M10.8 1.8v2.8"/></g></svg>',
     chart:
       '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M2.6 12.6v-4.2M6 12.6v-7.2M9.4 12.6v-3M12.8 12.6v-8.4"/></g></svg>',
-    cloud:
-      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M4.9 12.1h6.4a2.6 2.6 0 0 0 .4-5.2 3.5 3.5 0 0 0-6.7-.9 2.8 2.8 0 0 0-.1 6.1z"/></g></svg>',
-    play: '<svg viewBox="0 0 16 16"><path class="ico-solid" d="M5.4 3.2l7 4.8-7 4.8z"/></svg>',
-    pause:
-      '<svg viewBox="0 0 16 16"><path class="ico-solid" d="M5 3.4h2v9.2H5zM9 3.4h2v9.2H9z"/></svg>',
-    // The weather rows. Drawn small and stroked, because they sit in a line of
-    // small capitals and a filled shape at this size reads as a smudge.
-    drop:
-      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M8 2.4s4 4.4 4 7a4 4 0 0 1-8 0c0-2.6 4-7 4-7z"/></g></svg>',
-    thermometer:
-      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M9.4 9.4V3.6a1.4 1.4 0 0 0-2.8 0v5.8a2.6 2.6 0 1 0 2.8 0z"/></g></svg>',
-    wind:
-      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M1.8 6.2h8.4a2 2 0 1 0-2-2"/>' +
-      '<path d="M1.8 9.6h10.6a2 2 0 1 1-2 2"/></g></svg>',
-    gauge:
-      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M2.4 12.2a6.6 6.6 0 1 1 11.2 0z"/>' +
-      '<path d="M8 12.2l3-3.6"/></g></svg>',
-    sunrise:
-      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M2.2 13.4h11.6"/>' +
-      '<path d="M4.6 10.4a3.4 3.4 0 0 1 6.8 0"/><path d="M8 1.8v2.4M3.4 4.2l1.4 1.4M12.6 4.2l-1.4 1.4"/></g></svg>',
-    clock:
-      '<svg viewBox="0 0 16 16"><g class="ico-line"><circle cx="8" cy="8" r="6"/>' +
-      '<path d="M8 4.4V8l2.4 1.6"/></g></svg>',
-    map:
-      '<svg viewBox="0 0 16 16"><g class="ico-line"><path d="M1.8 4l4.2-2 4 2 4.2-2v10l-4.2 2-4-2-4.2 2z"/>' +
-      '<path d="M6 2v10M10 4v10"/></g></svg>',
   };
 
   // Left first, then centre, then right. Grouped rather than interleaved: the
@@ -617,12 +558,6 @@
   /**
    * An SVG element from a markup string, parsed once and cloned after.
    *
-   * Keyed by the markup rather than by a name, because two callers now want two
-   * different things from it: the page's fixed icon set asks by name, and the
-   * weather asks with the drawing itself. Passing a weather drawing to a lookup
-   * that reads ICONS[name] finds nothing and returns null — silently, since
-   * nothing is null in a way that renders as no icon rather than as an error.
-   *
    * Parsed as HTML, NOT as "image/svg+xml". Chromium's XML parser returns the
    * root element with a null namespace, and an element in no namespace is not an
    * SVG: every icon sat in the DOM at the right size, reserving its space, and
@@ -922,443 +857,6 @@
     return node;
   }
 
-  /**
-   * The weather: what it is now, what the radar says is coming, and four days.
-   *
-   * The radar is two grids of nine tiles stacked, not one image: the tiles are
-   * transparent overlays and the base map has to sit under them. Inline as data
-   * URIs, which is why this works with no network — see fetch_weather.py.
-   */
-  // Weather art, one per kind of weather.
-  //
-  // Drawn rather than imported: nine shapes is cheaper than a font or a sprite,
-  // and they take their colours from the stylesheet the way every other icon on
-  // the page does. The pipeline turns a WMO code into words because a number is
-  // not a forecast; this turns it into a shape because a word is not a glance.
-  // Neither decides anything about the other's job.
-  const WEATHER_ART = {
-    clear:
-      '<circle class="wi-sun" cx="12" cy="12" r="4.6"/>' +
-      '<g class="wi-stroke"><path d="M12 1.6v2.8M12 19.6v2.8M1.6 12h2.8M19.6 12h2.8' +
-      'M4.7 4.7l2 2M17.3 17.3l2 2M19.3 4.7l-2 2M6.7 17.3l-2 2"/></g>',
-    partly:
-      '<circle class="wi-sun" cx="9.4" cy="8.4" r="3.6"/>' +
-      '<g class="wi-stroke"><path d="M9.4 1.8v2.2M1.8 8.4h2.2M4 3.1l1.6 1.6"/></g>' +
-      '<path class="wi-cloud" d="M9.6 20.2h8.6a3.6 3.6 0 0 0 .5-7.2 4.9 4.9 0 0 0-9.2-1.2 4 4 0 0 0 .1 8.4z"/>',
-    cloudy:
-      '<path class="wi-cloud" d="M5.8 17.6h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>',
-    fog:
-      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
-      '<g class="wi-stroke"><path d="M4.4 17.8h15.2M6.4 20.8h11.2"/></g>',
-    drizzle:
-      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
-      '<g class="wi-stroke"><path d="M10 17.6v2.2M14 17.6v2.2"/></g>',
-    rain:
-      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
-      '<g class="wi-stroke"><path d="M8.4 17.4v3M12 17.4v3M15.6 17.4v3"/></g>',
-    heavy:
-      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
-      '<g class="wi-stroke wi-heavy"><path d="M7.8 17.2l-1 4M12 17.2l-1 4M16.2 17.2l-1 4"/></g>',
-    snow:
-      '<path class="wi-cloud" d="M5.8 14.4h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
-      '<g class="wi-dot"><circle cx="8.8" cy="18.6" r="1.1"/><circle cx="12" cy="21" r="1.1"/><circle cx="15.2" cy="18.6" r="1.1"/></g>',
-    storm:
-      '<path class="wi-cloud" d="M4.4 14.2h12.4a4.1 4.1 0 0 0 .5-8.2 5.6 5.6 0 0 0-10.6-1.4 4.5 4.5 0 0 0-.3 9.6z"/>' +
-      '<path class="wi-bolt" d="M13.6 15.4l-3.6 4.4h2.4l-.8 3.4 3.6-4.6h-2.4z"/>',
-  };
-
-  /**
-   * The drawing for one of the pipeline's kinds, as an element.
-   *
-   * Takes the kind, not the WMO code: the mapping from code to shape lives in
-   * fetch_weather.py beside the mapping from code to words, so that the renderer
-   * decides no more about the shape of the weather than it does about the
-   * wording of it. The fallback is for a data file written before `kind` existed
-   * — a cloudy drawing is wrong in a way nobody minds, where a blank square at
-   * the top of the panel reads as a rendering fault.
-   */
-  function weatherIcon(kind, className) {
-    const art = WEATHER_ART[kind] || WEATHER_ART.cloudy;
-    const span = el("span", `wx-icon${className ? ` ${className}` : ""}`);
-    // svgFrom, not icon(): icon() looks the drawing up by name in ICONS, and the
-    // weather drawings are not in it.
-    //
-    // And the wrapper goes on here rather than being stored nine times. The
-    // drawings above are fragments — a circle, a cloud, some drops — and svgFrom
-    // wants a complete element: handed a bare <circle> it checks nodeName, finds
-    // "circle", and returns null. That failure is silent, since a null icon
-    // renders as nothing at all, and it cost two rounds of checking the DOM.
-    const glyph = svgFrom(`<svg viewBox="0 0 24 24">${art}</svg>`);
-    if (glyph) span.appendChild(glyph);
-    return span;
-  }
-  /**
-   * One row of small facts, each with an icon, divided by hairlines.
-   *
-   * The dividers are borders on the cells rather than elements between them: a
-   * rule that is part of the cell cannot end up as the last thing in the row, and
-   * a trailing rule is the sort of detail that only shows up in a screenshot.
-   */
-  function wxFactRow(facts, className) {
-    const row = el("div", `wx-facts${className ? ` ${className}` : ""}`);
-    row.style.setProperty("--wx-cols", String(Math.max(1, facts.length)));
-    for (const fact of facts) {
-      const cell = el("div", "wx-fact");
-      const glyph = icon(fact.icon);
-      if (glyph) cell.appendChild(glyph);
-      const body = el("div", "wx-fact-body");
-      body.appendChild(el("p", "wx-fact-label", fact.label));
-      const value = el("p", "wx-fact-value", fact.value);
-      if (fact.sub) value.appendChild(el("span", "wx-fact-sub", fact.sub));
-      body.appendChild(value);
-      cell.appendChild(body);
-      row.appendChild(cell);
-    }
-    return row;
-  }
-
-  /**
-   * The weather: what it is doing, four facts, the hours ahead, the radar, and
-   * three days.
-   *
-   * Laid out after the weather mock. Its two typographic habits are the ones
-   * worth copying, because they are what the rest of this paper already does:
-   * every figure is set in the display face and every label is a small capital in
-   * the body face. A temperature in Inter beside a headline in Fraunces was the
-   * thing making this panel look like it came from somewhere else.
-   */
-  function weatherPanel(panel) {
-    const node = card(panel.league || "");
-    node.classList.add("weather");
-
-    const now = panel.current || {};
-    const today = (panel.days && panel.days[0]) || {};
-
-    // The head is centred and two lines deep, which reads as a masthead for the
-    // block rather than as a label with a note beside it.
-    const head = el("div", "wx-head");
-    head.appendChild(el("p", "wx-place", panel.title || ""));
-    head.appendChild(el("p", "wx-kicker", "Today's weather"));
-    node.appendChild(head);
-
-    // The hero, in two halves with a rule between: what it is doing, and what to
-    // expect. The split earns its place — the left answers "what is it like out"
-    // and the right answers "do I need a coat".
-    const hero = el("div", "wx-hero");
-
-    const main = el("div", "wx-hero-main");
-    const glyph = weatherIcon(now.kind, "wx-icon--lead");
-    if (glyph) main.appendChild(glyph);
-    const figure = el("div", "wx-hero-figure");
-    figure.appendChild(
-      el("p", "wx-temp", `${Math.round(Number(now.temperature) || 0)}°`),
-    );
-    figure.appendChild(el("p", "wx-desc", now.description || ""));
-    main.appendChild(figure);
-    hero.appendChild(main);
-
-    const range = el("div", "wx-hero-range");
-    if (today.max != null) {
-      range.appendChild(el("p", "wx-range-line", `High ${Math.round(today.max)}°`));
-    }
-    if (today.min != null) {
-      range.appendChild(
-        el("p", "wx-range-line", `Low ${Math.round(today.min)}°`),
-      );
-    }
-    if (today.sunrise) {
-      const sun = el("p", "wx-sun");
-      const sunGlyph = icon("sunrise");
-      if (sunGlyph) sun.appendChild(sunGlyph);
-      sun.appendChild(
-        document.createTextNode(`${today.sunrise} – ${today.sunset}`),
-      );
-      range.appendChild(sun);
-    }
-    hero.appendChild(range);
-    node.appendChild(hero);
-
-    // The four facts. Pressure is the one that needed fetching; the rest were
-    // already in the response and were being dropped on the floor.
-    node.appendChild(
-      wxFactRow([
-        {
-          icon: "thermometer",
-          label: "Feels like",
-          value:
-            now.feels_like == null
-              ? "—"
-              : `${Math.round(Number(now.feels_like))}°`,
-        },
-        {
-          icon: "drop",
-          label: "Humidity",
-          value: now.humidity == null ? "—" : `${now.humidity}%`,
-        },
-        {
-          icon: "wind",
-          label: "Wind",
-          value: now.wind == null ? "—" : `${now.wind} km/h`,
-          sub: now.wind_direction || "",
-        },
-        {
-          icon: "gauge",
-          label: "Pressure",
-          value: now.pressure == null ? "—" : `${now.pressure} hPa`,
-        },
-      ]),
-    );
-
-    // The hours, with a heading of their own. Six columns, which is the reach of
-    // a short forecast and the most that fits at a readable size.
-    if (panel.hours && panel.hours.length) {
-      const section = el("div", "wx-section");
-      section.appendChild(el("p", "wx-label", "Hourly forecast"));
-      if (panel.updated) section.appendChild(el("p", "wx-note", panel.updated));
-      node.appendChild(section);
-
-      const strip = el("div", "wx-hours");
-      strip.style.setProperty("--wx-hours", String(panel.hours.length));
-      for (const hour of panel.hours) {
-        const cell = el("div", "wx-hour");
-        cell.appendChild(el("p", "wx-hour-time", hour.time || ""));
-        const art = weatherIcon(hour.kind, "wx-icon--hour");
-        if (art) cell.appendChild(art);
-        cell.appendChild(
-          el("p", "wx-hour-temp", `${Math.round(Number(hour.temperature) || 0)}°`),
-        );
-        const chance = Number(hour.probability);
-        if (Number.isFinite(chance) && chance >= WX_RAIN_WORTH_SHOWING) {
-          const rain = el("p", "wx-hour-rain");
-          const rainGlyph = icon("drop");
-          if (rainGlyph) rain.appendChild(rainGlyph);
-          rain.appendChild(document.createTextNode(`${chance}%`));
-          cell.appendChild(rain);
-        } else {
-          cell.appendChild(el("p", "wx-hour-rain wx-hour-rain--quiet", ""));
-        }
-        strip.appendChild(cell);
-      }
-      node.appendChild(strip);
-    }
-
-    // The map.
-    const radar = panel.radar;
-    if (radar && radar.base) {
-      const geo = el("div", "radar");
-      const cols = String(radar.grid || 2);
-      geo.style.setProperty("--radar-cols", cols);
-      geo.style.setProperty("--radar-magnify", String(RADAR_MAGNIFY));
-
-      const shift = radar.shift || [0, 0];
-      geo.style.setProperty("--radar-shift-x", `${(shift[0] || 0) * 100}%`);
-      geo.style.setProperty("--radar-shift-y", `${(shift[1] || 0) * 100}%`);
-
-      const layer = (tiles) => {
-        const grid = el("div", "radar-layer");
-        for (const tile of tiles) {
-          if (!tile) {
-            // An empty cell rather than no cell: the grid has to keep its shape
-            // or the whole map shifts by one tile and puts Kaunas in the sea.
-            grid.appendChild(el("div", "radar-gap"));
-            continue;
-          }
-          const img = el("img", "radar-tile");
-          img.src = tile;
-          img.alt = "";
-          grid.appendChild(img);
-        }
-        return grid;
-      };
-
-      const base = layer(radar.base);
-      base.classList.add("radar-base");
-      geo.appendChild(base);
-
-      // One layer per frame, stacked and cross-faded by a class. The class is
-      // what the stylesheet holds at zero opacity — without it every frame sits
-      // at full opacity on top of the last, which looks like a single working
-      // image and hides the fact that the animation is doing nothing at all.
-      const frames = (radar.frames || []).map((frame) => {
-        const node2 = layer(frame.tiles);
-        node2.classList.add("radar-frame");
-        return node2;
-      });
-      for (const frame of frames) geo.appendChild(frame);
-
-      // The marker, in the window rather than in the layer: the city is at the
-      // middle of the view by construction — see build_radar — so this is a fixed
-      // dot, and it is what makes the map a map of somewhere.
-      if (Number.isFinite(Number(shift[0]))) {
-        geo.appendChild(el("span", "radar-marker"));
-      }
-      node.appendChild(geo);
-
-      const times = (radar.frames || []).map((frame) => frame.time || "");
-      const stamp = el("span", "radar-time");
-
-      const bar = el("div", "radar-bar");
-      const scrub = el("input", "radar-scrub");
-      scrub.type = "range";
-      scrub.min = "0";
-      scrub.max = String(Math.max(0, frames.length - 1));
-      scrub.step = "1";
-      scrub.value = "0";
-      scrub.setAttribute("aria-label", "Radar frame");
-
-      const play = el("button", "radar-play");
-      play.type = "button";
-
-      if (frames.length > 1) {
-        let current = 0;
-        let running = false;
-        let timer = 0;
-
-        const show = (index) => {
-          current = index;
-          frames.forEach((frame, i) => {
-            frame.classList.toggle("is-shown", i === index);
-          });
-          scrub.value = String(index);
-          stamp.textContent = times[index] || "";
-        };
-
-        const stop = () => {
-          running = false;
-          if (timer) window.clearInterval(timer);
-          timer = 0;
-          const glyph2 = svgFrom(ICONS.play);
-          play.replaceChildren();
-          if (glyph2) play.appendChild(glyph2);
-          play.setAttribute("aria-label", "Play the radar loop");
-          play.classList.remove("is-playing");
-        };
-
-        const start = () => {
-          if (running) return;
-          running = true;
-          const glyph2 = svgFrom(ICONS.pause);
-          play.replaceChildren();
-          if (glyph2) play.appendChild(glyph2);
-          play.setAttribute("aria-label", "Pause the radar loop");
-          play.classList.add("is-playing");
-          timer = window.setInterval(() => {
-            show((current + 1) % frames.length);
-          }, RADAR_FRAME_MS);
-        };
-
-        play.addEventListener("click", () => (running ? stop() : start()));
-
-        // Dragging stops it. The point of a scrubber is to look at one frame, and
-        // an animation that carries on underneath the hand doing the looking is
-        // fighting the reader.
-        scrub.addEventListener("input", () => {
-          stop();
-          show(Number(scrub.value) || 0);
-        });
-
-        show(0);
-
-        // Respecting the setting rather than animating regardless: a looping map
-        // is exactly the kind of motion the preference exists for. The scrubber
-        // stays, so the earlier frames are still reachable.
-        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-          show(frames.length - 1);
-          stop();
-        } else {
-          start();
-        }
-      } else {
-        const glyph2 = svgFrom(ICONS.play);
-        if (glyph2) play.appendChild(glyph2);
-        play.disabled = true;
-        scrub.disabled = true;
-        stamp.textContent = radar.time || "";
-      }
-
-      bar.appendChild(play);
-      bar.appendChild(scrub);
-      node.appendChild(bar);
-
-      const wetIndex = (panel.hours || []).findIndex(
-        (hour) => Number(hour.probability) >= WX_RAIN_CERTAIN,
-      );
-      // The row starts at the current hour, so finding rain there means it is
-      // raining now — and "next rain 12:00" at half past twelve is a claim about
-      // the future that the present has already contradicted.
-      const wet = !panel.hours || wetIndex < 0
-        ? "None today"
-        : wetIndex === 0
-          ? "Now"
-          : panel.hours[wetIndex].time;
-      const foot = el("div", "wx-facts radar-foot");
-      foot.style.setProperty("--wx-cols", "3");
-      const cells = [
-        { icon: "clock", label: "Radar", value: stamp },
-        {
-          icon: "drop",
-          label: "Next rain",
-          value: wet,
-        },
-        {
-          icon: "map",
-          label: radar.attribution || "",
-          value: "",
-        },
-      ];
-      for (const item of cells) {
-        const cell = el("div", "wx-fact");
-        const glyph2 = icon(item.icon);
-        if (glyph2) cell.appendChild(glyph2);
-        const body = el("div", "wx-fact-body");
-        if (item.label) body.appendChild(el("p", "wx-fact-label", item.label));
-        if (typeof item.value === "string") {
-          if (item.value) body.appendChild(el("p", "wx-fact-value", item.value));
-        } else {
-          const line = el("p", "wx-fact-value");
-          line.appendChild(item.value);
-          body.appendChild(line);
-        }
-        cell.appendChild(body);
-        foot.appendChild(cell);
-      }
-      node.appendChild(foot);
-    } else {
-      node.appendChild(el("p", "radar-absent", "Radar unavailable this morning."));
-    }
-
-    if (panel.days && panel.days.length > 1) {
-      // In a section wrapper like the hourly heading, so the two labels sit the
-      // same distance from what is above them.
-      const section = el("div", "wx-section");
-      section.appendChild(el("p", "wx-label", "Three days"));
-      node.appendChild(section);
-
-      const row = el("div", "wx-days");
-      for (const day of panel.days.slice(1, 4)) {
-        const cell = el("div", "wx-day");
-        const art = weatherIcon(day.kind, "wx-icon--day");
-        if (art) cell.appendChild(art);
-        cell.appendChild(el("p", "wx-day-name", day.weekday || ""));
-        cell.appendChild(el("p", "wx-day-desc", day.description || ""));
-        cell.appendChild(
-          el("p", "wx-day-temp", `${Math.round(day.min)}°/${Math.round(day.max)}°`),
-        );
-        if (day.probability != null) {
-          const rain = el("p", "wx-day-rain");
-          const rainGlyph = icon("drop");
-          if (rainGlyph) rain.appendChild(rainGlyph);
-          rain.appendChild(document.createTextNode(`${day.probability}%`));
-          cell.appendChild(rain);
-        }
-        row.appendChild(cell);
-      }
-      node.appendChild(row);
-    }
-
-    return node;
-  }
-
   /** Draw one panel in whichever of the shapes it asked for. */
   function buildPanel(panel) {
     switch (panel.kind) {
@@ -1392,12 +890,6 @@
           row.appendChild(storyCard(story, panel.league));
         }
         node.appendChild(row);
-        return node;
-      }
-      case "weather": {
-        const node = el("section", "panel panel--bare");
-        node.dataset.league = panel.league || "";
-        node.appendChild(weatherPanel(panel));
         return node;
       }
       case "feature": {
@@ -1474,27 +966,6 @@
       );
       feed.classList.toggle("is-empty", !any);
     }
-  }
-
-  /**
-   * Panels above a page's news, with no tabs.
-   *
-   * Split out of renderDashboard, which is the sports one and comes with a tab
-   * strip. The weather needs the panels without the tabs — it is a single panel,
-   * there is nothing to filter, and a filter row above a map would be furniture.
-   */
-  function renderPanels(container, panels) {
-    if (!Array.isArray(panels) || !panels.length) return;
-
-    const dash = el("div", "dash");
-    let drawn = 0;
-    for (const panel of panels) {
-      const node = buildPanel(panel);
-      if (!node) continue;
-      dash.appendChild(node);
-      drawn += 1;
-    }
-    if (drawn) container.appendChild(dash);
   }
 
   /**
@@ -1616,13 +1087,7 @@
   }
 
   /** Render one page's cards into its container. Returns how many it drew. */
-  function renderSection(section, rows, container, extras) {
-    // Two shapes of extra content, and a section may have either, both or
-    // neither. Passed as one object rather than as two positional arguments
-    // because the call site had three booleans' worth of meaning in two slots.
-    const statsBlocks = (extras && extras.stats) || [];
-    const panels = (extras && extras.panels) || null;
-
+  function renderSection(section, rows, container, statsBlocks) {
     let stories;
     if (section.category) {
       stories = rankSections(rows, section.category);
@@ -1652,10 +1117,7 @@
       return 0;
     }
 
-    // A beat's own panels, above its news. The weather for Lietuva; the
-    // dashboard for Sports, which is parked.
-    if (panels && panels.length) renderPanels(container, panels);
-
+    // The sports dashboard, parked but wired — see DASHBOARD_PARKED.
     if (section.stats && !DASHBOARD_PARKED) {
       renderDashboard(container, statsBlocks);
     }
@@ -1722,22 +1184,6 @@
     // Every wired page carries the same build date. Only World owns the stale
     // badge, because one page being out of date means they all are.
     document.querySelectorAll("[data-stamp]").forEach((node) => {
-      // The sports masthead sets the date opposite its title, where there is room
-      // for two short lines and not for "Wednesday, 16 September" — which wrapped
-      // to three in a seventy-five pixel column. Pages opt in with
-      // data-stamp="compact"; the rest keep the long form under the masthead.
-      if (node.dataset.stamp === "compact") {
-        // en-US for the month specifically: British English abbreviates September
-        // to four characters ("16 Sept") where the masthead has room for three.
-        const short = builtAt.toLocaleDateString("en-GB", { day: "numeric" });
-        const month = builtAt.toLocaleDateString("en-US", { month: "short" });
-        const weekdayShort = builtAt.toLocaleDateString("en-GB", {
-          weekday: "short",
-        });
-        // One string, two lines: the stylesheet sets white-space: pre-line.
-        node.textContent = `${short} ${month}\n${weekdayShort}`.toUpperCase();
-        return;
-      }
       node.textContent = `${weekday}, ${dayMonth}`;
     });
     // Only speaks up when the paper is not today's; silence is the normal case.
@@ -1794,22 +1240,16 @@
 
     // One fetch per source file, not per page: three of the five pages read the
     // same tracked list. A missing file is not fatal to the others — each page
-    // says so on its own. Panels are fetched alongside but never gate a page:
-    // a dead results source should cost the reader a table, not a page, and a
-    // dead weather service should cost them the weather.
+    // says so on its own. The sports results are fetched alongside but never
+    // gate a page: a dead results source should cost the reader a table, not a
+    // page.
     const urls = [...new Set(SECTIONS.map((s) => s.url))];
-    // Panel sources, in a fixed order, so the indices below stay honest. A set
-    // because two beats could one day share one — they do not today.
-    const panelUrls = [STATS_URL, WEATHER_URL];
     const loaded = await Promise.all([
       ...urls.map((url) => loadJson(url)),
-      ...panelUrls.map((url) => loadJson(url)),
+      loadJson(STATS_URL),
     ]);
     const byUrl = new Map(urls.map((url, i) => [url, loaded[i]]));
-    const panelsByUrl = new Map(
-      panelUrls.map((url, i) => [url, loaded[urls.length + i] || []]),
-    );
-    const statsBlocks = panelsByUrl.get(STATS_URL);
+    const statsBlocks = loaded[urls.length] || [];
 
     let shown = 0;
     for (const section of SECTIONS) {
@@ -1826,10 +1266,7 @@
         );
         continue;
       }
-      shown += renderSection(section, rows, container, {
-        stats: statsBlocks,
-        panels: section.panels ? panelsByUrl.get(section.panels) : null,
-      });
+      shown += renderSection(section, rows, container, statsBlocks);
     }
 
     if (stamp && !stamped) {
