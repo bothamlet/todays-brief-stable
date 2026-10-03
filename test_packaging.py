@@ -29,11 +29,34 @@ class TestOfflinePackage(unittest.TestCase):
             self.assertNotIn('<script src=', text)
             self.assertNotIn('data/stats.json', text)
 
-    def test_failed_photo_fetch_cannot_leave_remote_image_reference(self):
+    def test_failed_photo_fetch_preserves_online_fallback(self):
         data = {'story': {'urlToImage': 'https://example.com/photo.jpg'}}
         with patch.object(bundle, 'download_image', return_value=None):
             bundle.inline_images(data)
+        self.assertEqual(data['story']['urlToImage'], 'https://example.com/photo.jpg')
+
+    def test_offline_mode_omits_remote_photos_without_downloads(self):
+        data = {'story': {'urlToImage': 'https://example.com/photo.jpg'}}
+        with patch.object(bundle, 'download_image', side_effect=AssertionError('download')):
+            bundle.inline_images(data, offline=True)
         self.assertEqual(data['story']['urlToImage'], '')
+
+    def test_large_photo_is_embedded_without_changing_its_bytes(self):
+        import base64
+        photo = b'\xff\xd8\xff' + b'x' * (3 * 1024 * 1024)
+        data = {'story': {'urlToImage': 'https://example.com/photo.jpg'}}
+        with patch.object(bundle, 'download_image', return_value=photo):
+            bundle.inline_images(data)
+        uri = data['story']['urlToImage']
+        self.assertTrue(uri.startswith('data:image/jpeg;base64,'))
+        self.assertEqual(base64.b64decode(uri.split(',', 1)[1]), photo)
+
+    def test_failed_embedding_does_not_preserve_unsafe_urls(self):
+        for url in ['javascript:alert(1)', 'https://[', 'https://user:pass@example.com/photo']:
+            data = {'story': {'urlToImage': url}}
+            with patch.object(bundle, 'download_image', return_value=None):
+                bundle.inline_images(data)
+            self.assertEqual(data['story']['urlToImage'], '')
 
     def test_malformed_photo_url_is_an_omitted_asset(self):
         self.assertIsNone(bundle.download_image('https://['))
@@ -42,7 +65,7 @@ class TestOfflinePackage(unittest.TestCase):
         data = {'stories': [{'urlToImage': 'https://example.com/image'} for _ in range(3)]}
         with patch.object(bundle, 'download_image', return_value=b'\xff\xd8\xfffixture'), patch.object(bundle, 'IMAGE_BUDGET', 1):
             bundle.inline_images(data)
-        self.assertTrue(all(row['urlToImage'] == '' for row in data['stories']))
+        self.assertTrue(all(row['urlToImage'] == 'https://example.com/image' for row in data['stories']))
 
     def test_missing_fonts_remove_remote_stylesheet(self):
         html = (ROOT / 'index.html').read_text()

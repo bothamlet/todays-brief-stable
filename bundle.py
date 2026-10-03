@@ -10,8 +10,8 @@ under it. Nothing is broken; there is simply nothing to fetch from.
 
 So this writes a single `paper.html` with everything inside it: the stylesheet,
 the two scripts, all seven data files, and the fonts and available photos. It opens from
-Telegram, from a download folder, from anywhere, with no network at all — which
-is the point. The morning paper should be readable on a train.
+Telegram or a download folder. Text and embedded photos work offline; photos
+that cannot be embedded keep their original URLs so they can load when online.
 
 Three things are not as easy as concatenation:
 
@@ -173,8 +173,9 @@ def inline_stylesheet(html: str) -> tuple[str, int]:
     return html, count
 
 
-IMAGE_LIMIT = 2 * 1024 * 1024
-IMAGE_BUDGET = 12 * 1024 * 1024
+IMAGE_LIMIT = 8 * 1024 * 1024
+# Leave room for fonts and text under Telegram's 50 MB document limit.
+IMAGE_BUDGET = 40 * 1024 * 1024
 
 
 def download_image(url: str) -> bytes | None:
@@ -192,7 +193,7 @@ def download_image(url: str) -> bytes | None:
     except ValueError:
         return None
     try:
-        with requests.get(url, headers={"User-Agent": BROWSER_UA}, timeout=12,
+        with requests.get(url, headers={"User-Agent": BROWSER_UA}, timeout=20,
                           stream=True) as response:
             if response.status_code != 200:
                 return None
@@ -221,7 +222,7 @@ def image_uri(data: bytes) -> str | None:
 
 
 def inline_images(payload: dict[str, object], *, offline: bool = False) -> None:
-    """Replace all photo references with embedded images or an empty fallback."""
+    """Embed original photo bytes, preserving online fallbacks unless offline."""
     references = []
     def walk(value):
         if isinstance(value, dict):
@@ -247,10 +248,17 @@ def inline_images(payload: dict[str, object], *, offline: bool = False) -> None:
                 replacements[url] = uri
                 spent += cost
             else:
-                replacements[url] = ""
+                try:
+                    parsed = urlsplit(url)
+                    remote = parsed.scheme in ("http", "https") and parsed.hostname and not parsed.username
+                except ValueError:
+                    remote = False
+                replacements[url] = url if remote and not offline else ""
     for row in references:
         row["urlToImage"] = replacements[row["urlToImage"]]
-    print(f"  photos: {sum(bool(uri) for uri in replacements.values())}/{len(urls)} embedded")
+    embedded = sum(uri.startswith("data:") for uri in replacements.values())
+    remote = sum(uri.startswith(("http://", "https://")) for uri in replacements.values())
+    print(f"  photos: {embedded}/{len(urls)} embedded, {remote} online fallbacks")
 
 
 def embed_data(html: str, *, offline: bool = False) -> tuple[str, int, int]:
