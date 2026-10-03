@@ -25,21 +25,32 @@
   function goToPage(index, animate = true) {
     if (index < 0 || index >= pages.length) return;
 
-    // Remove in-view from old page
-    pages[currentPage].classList.remove("in-view");
-
+    const oldPage = pages[currentPage];
+    const movingFocus = oldPage.contains(document.activeElement) && index !== currentPage;
     currentPage = index;
+    pages.forEach((page, i) => {
+      const active = i === currentPage;
+      page.classList.toggle("in-view", active);
+      page.inert = !active;
+      page.setAttribute("aria-hidden", String(!active));
+    });
+    if (movingFocus) dots[currentPage].focus({ preventScroll: true });
 
     const offset = -currentPage * PAGE_WIDTH();
     if (animate) {
-      wrapper.style.transition = `transform ${SNAP_DURATION}ms cubic-bezier(0.25, 0.1, 0.25, 1)`;
+      const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : SNAP_DURATION;
+      wrapper.style.transition = `transform ${duration}ms cubic-bezier(0.25, 0.1, 0.25, 1)`;
     } else {
       wrapper.style.transition = "none";
     }
     wrapper.style.transform = `translateX(${offset}px)`;
 
     // Update dots
-    dots.forEach((d, i) => d.classList.toggle("active", i === currentPage));
+    dots.forEach((dot, i) => {
+      dot.classList.toggle("active", i === currentPage);
+      if (i === currentPage) dot.setAttribute("aria-current", "page");
+      else dot.removeAttribute("aria-current");
+    });
 
     // Trigger entrance animation
     requestAnimationFrame(() => {
@@ -57,6 +68,7 @@
   // --- Touch / pointer handling ---
 
   function onPointerDown(e) {
+    if (e.touches && e.touches.length !== 1) return;
     // Ignore touches on interactive elements
     if (e.target.closest("button, a, input")) return;
 
@@ -71,6 +83,11 @@
 
   function onPointerMove(e) {
     if (!isDragging) return;
+    if (e.touches && e.touches.length !== 1) {
+      isDragging = false;
+      goToPage(currentPage);
+      return;
+    }
 
     const currentX = e.type.startsWith("touch")
       ? e.touches[0].clientX
@@ -123,7 +140,10 @@
   wrapper.addEventListener("touchstart", onPointerDown, { passive: true });
   wrapper.addEventListener("touchmove", onPointerMove, { passive: false });
   wrapper.addEventListener("touchend", onPointerUp);
-  wrapper.addEventListener("touchcancel", onPointerUp);
+  wrapper.addEventListener("touchcancel", () => {
+    isDragging = false;
+    goToPage(currentPage);
+  });
 
   // Mouse events (for desktop testing)
   wrapper.addEventListener("mousedown", onPointerDown);
@@ -147,9 +167,12 @@
 
   // --- Keyboard navigation ---
   document.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    if (e.defaultPrevented || e.target.closest("input, textarea, select, [contenteditable]")) return;
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
       goToPage(currentPage + 1);
-    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
       goToPage(currentPage - 1);
     }
   });

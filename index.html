@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Today's Brief</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,16 +14,14 @@
   <div class="phone-frame">
     <div class="phone-notch"></div>
 
-    <!-- Page indicator dots — order: World, Europe, Lietuva, Tech, Sports, Other, For You -->
-    <div class="page-dots" id="pageDots">
-      <span class="dot active" data-color="teal"></span>
-      <span class="dot" data-color="violet"></span>
-      <span class="dot" data-color="amber"></span>
-      <span class="dot" data-color="blue"></span>
-      <span class="dot" data-color="orange"></span>
-      <span class="dot" data-color="gold"></span>
-      <span class="dot" data-color="pink"></span>
-    </div>
+    <nav class="page-dots" id="pageDots" aria-label="News sections">
+      <button type="button" class="dot active" data-color="teal" aria-label="World" aria-current="page"></button>
+      <button type="button" class="dot" data-color="violet" aria-label="Europe"></button>
+      <button type="button" class="dot" data-color="amber" aria-label="Lietuva"></button>
+      <button type="button" class="dot" data-color="blue" aria-label="Tech"></button>
+      <button type="button" class="dot" data-color="orange" aria-label="Sports"></button>
+      <button type="button" class="dot" data-color="gold" aria-label="Other"></button>
+    </nav>
 
     <!-- Pages container -->
     <div class="pages-wrapper" id="pagesWrapper">
@@ -34,32 +32,18 @@
           <p class="page-label">TODAY'S BRIEF</p>
           <h1 class="page-title title-world">WORLD</h1>
           <p class="page-updated" id="worldUpdated">Loading…</p>
-          <!-- Rendered only when the page is more than a day old. A failed morning
-               run leaves the previous issue standing rather than a blank page, so
-               this is the only place the reader can tell. -->
-          <p class="page-stale" id="worldStale" hidden></p>
-
-          <!-- PARKED. The desk quote is out of the design for now. Nothing was
-               deleted: this markup, the .desk-quote rules in styles.css,
-               loadDeskQuote() in render.js and write_desk.py all remain. To bring
-               it back — uncomment this block and the loadDeskQuote() call, and
-               add write_desk.py back to run.sh's step list. -->
-          <!--
-          <div class="desk-quote" id="deskBlock">
-            <p id="deskQuote"></p>
-            <span class="desk-sig">— Chap.</span>
-          </div>
-          -->
+          <!-- Previous editions carry their actual build date. -->
+          <p class="page-stale" id="worldStale" data-stale hidden></p>
 
           <hr class="divider">
 
           <!-- Cards are built by render.js from data/world_covered.json -->
           <div id="worldStories"></div>
 
-          <div class="page-swipe-hint">
-            <span>SWIPE RIGHT FOR MORE</span>
-            <span class="arrow">&longrightarrow;</span>
-          </div>
+          <button type="button" class="page-swipe-hint" aria-label="Next news section">
+            <span>SWIPE LEFT FOR MORE</span>
+            <span class="arrow" aria-hidden="true">&longrightarrow;</span>
+          </button>
         </div>
       </section>
 
@@ -69,6 +53,7 @@
           <p class="page-label">TODAY'S BRIEF</p>
           <h1 class="page-title title-europe">EUROPE</h1>
           <p class="page-updated" data-stamp>Loading…</p>
+          <p class="page-stale" data-stale hidden></p>
 
           <hr class="divider">
 
@@ -86,14 +71,7 @@
           <p class="page-label">TODAY'S BRIEF</p>
           <h1 class="page-title title-lietuva">LIETUVA</h1>
           <p class="page-updated" data-stamp>Loading…</p>
-
-          <!-- PARKED: desk quote -->
-          <!--
-          <div class="desk-quote">
-            <p>Population: 2.8 million.<br>Opinions: significantly more.</p>
-            <span class="desk-sig">— Chap.</span>
-          </div>
-          -->
+          <p class="page-stale" data-stale hidden></p>
 
           <hr class="divider">
 
@@ -111,19 +89,11 @@
           <p class="page-label">TODAY'S BRIEF</p>
           <h1 class="page-title title-tech">TECH</h1>
           <p class="page-updated" data-stamp>Loading…</p>
-
-          <!-- PARKED: desk quote -->
-          <!--
-          <div class="desk-quote">
-            <p>Another model launch.<br>Another headline that forgot to ask why.</p>
-            <span class="desk-sig">— Chap.</span>
-          </div>
-          -->
+          <p class="page-stale" data-stale hidden></p>
 
           <hr class="divider">
 
-          <!-- Filled by render.js from data/world_tracked.json, filtered to
-               classification.category === "Tech". -->
+          <!-- The dedicated tech beat. -->
           <div id="techStories"></div>
         </div>
       </section>
@@ -134,32 +104,11 @@
           <p class="page-label">TODAY'S BRIEF</p>
           <h1 class="page-title title-sports">SPORTS</h1>
           <p class="page-updated" data-stamp>Loading…</p>
-
-          <!-- PARKED with the dashboard: the tagline was the dashboard's
-               ("Games. Stats. What's next.") and Stats is the part that is no
-               longer there. Restoring one should restore the other. -->
-          <!--
-          <p class="beat-tagline">Games. Stats. What's next.</p>
-          -->
-
-          <!-- PARKED: desk quote -->
-          <!--
-          <div class="desk-quote">
-            <p>Someone won. Someone lost.<br>Several people are very loud about it.</p>
-            <span class="desk-sig">— Chap.</span>
-          </div>
-          -->
+          <p class="page-stale" data-stale hidden></p>
 
           <hr class="divider">
 
-          <!-- Filled by render.js. Above the news: the results dashboard from
-               data/stats.json, built by fetch_stats.py — finished games, the
-               teams being watched, what is on next, and one feature with a
-               championship table. Below it: the headlines from data/sports.json,
-               built by fetch_sports.py, which is its own beat with its own
-               sources and interests — NBA (Thunder, and the Lithuanians), F1,
-               EuroLeague and Žalgiris — not a category filtered out of the world
-               news roster. -->
+          <!-- The dedicated sports beat. -->
           <div id="sportsStories"></div>
         </div>
       </section>
@@ -170,47 +119,13 @@
           <p class="page-label">TODAY'S BRIEF</p>
           <h1 class="page-title title-other">OTHER</h1>
           <p class="page-updated" data-stamp>Loading…</p>
-
-          <!-- PARKED: desk quote -->
-          <!--
-          <div class="desk-quote">
-            <p>The numbers moved.<br>Someone, somewhere, is thrilled.</p>
-            <span class="desk-sig">— Chap.</span>
-          </div>
-          -->
+          <p class="page-stale" data-stale hidden></p>
 
           <hr class="divider">
 
           <!-- Filled by render.js from data/world_tracked.json, filtered to
                classification.category === "Other". -->
           <div id="otherStories"></div>
-        </div>
-      </section>
-
-      <!-- ==================== 7. FOR YOU ==================== -->
-      <section class="page" data-category="foryou" data-accent="#9d174d" data-accent-rgb="157,23,77">
-        <div class="page-inner">
-          <p class="page-label">TODAY'S BRIEF</p>
-          <h1 class="page-title title-foryou">FOR YOU</h1>
-          <p class="page-updated">Not wired yet</p>
-
-          <!-- PARKED: desk quote -->
-          <!--
-          <div class="desk-quote">
-            <p>Nothing urgent today.<br>Just something worth sitting with.</p>
-            <span class="desk-sig">— Chap.</span>
-          </div>
-          -->
-
-          <hr class="divider">
-
-          <div class="page-empty">
-            <p class="page-empty-title">No personalisation pipeline yet</p>
-            <p class="page-empty-detail">
-              This page needs its own source — music releases, long reads, a generated
-              closing note. Nothing feeds it today.
-            </p>
-          </div>
         </div>
       </section>
 

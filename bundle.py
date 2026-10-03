@@ -9,7 +9,7 @@ file:// URL — so a copy of this folder on a phone opens to a masthead with no 
 under it. Nothing is broken; there is simply nothing to fetch from.
 
 So this writes a single `paper.html` with everything inside it: the stylesheet,
-the two scripts, all seven data files, and the fonts. It opens from
+the two scripts, all seven data files, and the fonts and available photos. It opens from
 Telegram, from a download folder, from anywhere, with no network at all — which
 is the point. The morning paper should be readable on a train.
 
@@ -40,6 +40,9 @@ import base64
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlsplit
+from common import atomic_write, newest_first
 from pathlib import Path
 
 import requests
@@ -125,16 +128,14 @@ def escape_json(payload: object) -> str:
 def data_urls() -> list[str]:
     """Every data file render.js declares, read from render.js itself.
 
-    Derived rather than listed, so a new page that fetches a new file cannot be
-    forgotten here. A file that does not exist is skipped: that is what a parked
-    feature looks like from this side, and render.js already handles a missing
-    file by degrading the one page that wanted it.
+    Derived rather than listed so every wired section must have an input. A
+    missing file fails packaging instead of sending an incomplete fresh issue.
     """
     source = Path("render.js").read_text(encoding="utf-8")
     names = re.findall(r'\w+_URL = "([^"]+)"', source)
     # Only the ones that resolve inside the project. Same reasoning as
     # local_asset: these are ours, and the refusal should not depend on that.
-    return [name for name in names if local_asset(name)]
+    return [name for name in names if name.startswith("data/") and ".." not in Path(name).parts]
 
 
 def inline_scripts(html: str) -> tuple[str, int]:
@@ -146,8 +147,7 @@ def inline_scripts(html: str) -> tuple[str, int]:
         src = match.group(1)
         path = local_asset(src)
         if path is None:
-            print(f"  MISSING script: {src}", file=sys.stderr)
-            return match.group(0)
+            raise SystemExit(f"bundle: missing script {src}")
         count += 1
         body = escape_script(path.read_text(encoding="utf-8"))
         return f"<script>\n{body}\n</script>"
@@ -173,7 +173,87 @@ def inline_stylesheet(html: str) -> tuple[str, int]:
     return html, count
 
 
-def embed_data(html: str) -> tuple[str, int, int]:
+IMAGE_LIMIT = 2 * 1024 * 1024
+IMAGE_BUDGET = 12 * 1024 * 1024
+
+
+def download_image(url: str) -> bytes | None:
+    """Bounded, best-effort raster image download for an offline issue."""
+    if url.startswith("data:image/") and ";base64," in url:
+        try:
+            data = base64.b64decode(url.split(",", 1)[1], validate=True)
+            return data if len(data) <= IMAGE_LIMIT else None
+        except ValueError:
+            return None
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username:
+            return None
+    except ValueError:
+        return None
+    try:
+        with requests.get(url, headers={"User-Agent": BROWSER_UA}, timeout=12,
+                          stream=True) as response:
+            if response.status_code != 200:
+                return None
+            data = bytearray()
+            for chunk in response.iter_content(64 * 1024):
+                data.extend(chunk)
+                if len(data) > IMAGE_LIMIT:
+                    return None
+            return bytes(data)
+    except requests.RequestException:
+        return None
+
+
+def image_uri(data: bytes) -> str | None:
+    if data.startswith(b"\xff\xd8\xff"):
+        mime = "image/jpeg"
+    elif data.startswith(b"\x89PNG\r\n\x1a\n"):
+        mime = "image/png"
+    elif data.startswith((b"GIF87a", b"GIF89a")):
+        mime = "image/gif"
+    elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        mime = "image/webp"
+    else:
+        return None
+    return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
+
+
+def inline_images(payload: dict[str, object], *, offline: bool = False) -> None:
+    """Replace all photo references with embedded images or an empty fallback."""
+    references = []
+    def walk(value):
+        if isinstance(value, dict):
+            if isinstance(value.get("urlToImage"), str) and value["urlToImage"]:
+                references.append(value)
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+    walk(payload)
+    urls = list(dict.fromkeys(row["urlToImage"] for row in references))
+    replacements = {}
+    spent = 0
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        downloader = lambda url: download_image(url) if not offline or url.startswith("data:") else None
+        for url, data in zip(urls, pool.map(downloader, urls)):
+            uri = image_uri(data) if data else None
+            # Count duplicate appearances: JSON embeds each occurrence separately.
+            appearances = sum(row["urlToImage"] == url for row in references)
+            cost = len(uri or "") * appearances
+            if uri and spent + cost <= IMAGE_BUDGET:
+                replacements[url] = uri
+                spent += cost
+            else:
+                replacements[url] = ""
+    for row in references:
+        row["urlToImage"] = replacements[row["urlToImage"]]
+    print(f"  photos: {sum(bool(uri) for uri in replacements.values())}/{len(urls)} embedded")
+
+
+def embed_data(html: str, *, offline: bool = False) -> tuple[str, int, int]:
     """Insert the data files as window.__BRIEF__, just before the scripts.
 
     Placed before them rather than after because render.js reads it at load; a
@@ -186,17 +266,31 @@ def embed_data(html: str) -> tuple[str, int, int]:
     for url in data_urls():
         path = Path(url)
         if not path.is_file():
-            continue
+            raise SystemExit(f"bundle: missing required issue data {url}")
         try:
             payload[url] = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
-            print(f"  skipping {url}: {error}", file=sys.stderr)
-            continue
+            raise SystemExit(f"bundle: invalid issue data {url}: {error}")
         bytes_in += path.stat().st_size
 
-    if not payload:
-        print("  no data embedded — is this a fresh checkout?", file=sys.stderr)
-        return html, 0, 0
+    if not payload or "data/world_covered.json" not in payload:
+        raise SystemExit("bundle: no issue data; run the pipeline or use demo.py first")
+
+    # The delivered copy only needs ranked World stories and the Other category.
+    # The pipeline's full intermediate roster stays on disk for later stages.
+    world = payload["data/world_covered.json"]
+    if not isinstance(world, list):
+        raise SystemExit("bundle: World data must be a list of stories")
+    payload["data/world_covered.json"] = [row for row in world
+                                         if isinstance(row, dict) and type(row.get("briefing_rank")) is int]
+    tracked = payload.get("data/world_tracked.json")
+    if isinstance(tracked, list):
+        other = newest_first([row for row in tracked if isinstance(row, dict)
+                              and (row.get("classification") or {}).get("category") == "Other"])
+        other.sort(key=lambda row: {"high": 0, "medium": 1, "low": 2}.get(
+            str((row.get("classification") or {}).get("significance") or ""), 3))
+        payload["data/world_tracked.json"] = other[:5]
+    inline_images(payload, offline=offline)
 
     block = (
         "<script>window.__BRIEF__=" + escape_json(payload) + ";</script>\n"
@@ -288,7 +382,10 @@ def fonts_css() -> str | None:
             continue
 
     print(f"  fonts: {embedded} file(s) inlined, subsets {', '.join(KEEP_SUBSETS)}")
-    return "".join(faces) if embedded else None
+    # Drop any face that could not be embedded; an offline issue never retains
+    # a remote stylesheet or font file as a fallback.
+    faces = [block for block in faces if "url(https://" not in block]
+    return "".join(faces) if embedded and faces else None
 
 
 def face_weight(block: str) -> int | None:
@@ -368,10 +465,11 @@ def strip_preconnect(html: str) -> tuple[str, int]:
     return html, count
 
 
-def inline_fonts(html: str) -> tuple[str, bool]:
-    css = fonts_css()
+def inline_fonts(html: str, *, offline: bool = False) -> tuple[str, bool]:
+    css = None if offline else fonts_css()
     if not css:
         print("  fonts: could not be inlined — the paper will use system faces")
+        html = re.sub(r'<link href="https://fonts\.googleapis\.com/[^"]+" rel="stylesheet">', "", html)
         return html, False
     # The remote link is replaced, not supplemented: leaving it in would make the
     # bundled file reach for the network on open, which is the one thing a bundle
@@ -387,8 +485,7 @@ def inline_fonts(html: str) -> tuple[str, bool]:
 # --- Entry point -------------------------------------------------------------
 
 
-def main() -> None:
-    output = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_OUTPUT
+def build(output: Path, *, offline: bool = False) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
 
     html = INDEX.read_text(encoding="utf-8")
@@ -402,11 +499,11 @@ def main() -> None:
         # failure arrives silently on a phone at seven in the morning.
         raise SystemExit("bundle: index.html has no local stylesheet to inline")
 
-    html, files, data_bytes = embed_data(html)
-    html, fonts_ok = inline_fonts(html)
+    html, files, data_bytes = embed_data(html, offline=offline)
+    html, fonts_ok = inline_fonts(html, offline=offline)
     html, preconnects = strip_preconnect(html)
 
-    output.write_text(html, encoding="utf-8")
+    atomic_write(output, html)
     size = output.stat().st_size
 
     print()
@@ -416,11 +513,20 @@ def main() -> None:
     print(f"  stylesheets inlined : {style_count}")
     print(f"  scripts inlined     : {script_count}")
     print(f"  data files embedded : {files} ({data_bytes / 1024:.0f} KB of JSON)")
-    print(f"  fonts               : {'inlined' if fonts_ok else 'remote (not available)'}")
+    print(f"  fonts               : {'inlined' if fonts_ok else 'system fallback'}")
     print(f"  dead preconnects    : {preconnects} removed")
     print(f"  written             : {output} ({size / 1024:.0f} KB)")
     print()
     print("  Opens with no server and no network.")
+
+
+def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser(description="Build one self-contained phone issue.")
+    parser.add_argument("output", nargs="?", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--offline", action="store_true", help="make no network requests; use system fonts and existing embedded photos")
+    args = parser.parse_args()
+    build(args.output, offline=args.offline)
 
 
 if __name__ == "__main__":

@@ -85,49 +85,59 @@ body {
 /* --- Page Indicator Dots --- */
 .page-dots {
  position: absolute;
- top: 40px;
+ top: 18px;
  left: 50%;
  transform: translateX(-50%);
  display: flex;
- gap: 8px;
+ gap: 0;
  z-index: 50;
  padding: 4px 0;
 }
 
 .dot {
+ width: 44px;
+ height: 44px;
+ padding: 0;
+ border: 0;
+ background: transparent;
+ cursor: pointer;
+ display: grid;
+ place-items: center;
+}
+.dot::before {
+ content: "";
  width: 6px;
  height: 6px;
  border-radius: 3px;
- background: #ccc;
- transition: all 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
- opacity: 0.5;
+ background: #b7b2a9;
+ transition: width 0.2s;
 }
-
-.dot.active {
- width: 20px;
- opacity: 1;
+.dot.active::before { width: 20px; background: var(--accent); }
+.dot:focus-visible, button:focus-visible, a:focus-visible {
+ outline: 2px solid var(--accent);
+ outline-offset: 2px;
 }
 
 /* Dot colors by category */
-.dot[data-color="violet"].active {
+.dot[data-color="violet"].active::before {
  background: #4f46e5;
 }
-.dot[data-color="blue"].active {
+.dot[data-color="blue"].active::before {
  background: #2563eb;
 }
-.dot[data-color="pink"].active {
+.dot[data-color="pink"].active::before {
  background: #9d174d;
 }
-.dot[data-color="amber"].active {
+.dot[data-color="amber"].active::before {
  background: #b45309;
 }
-.dot[data-color="teal"].active {
+.dot[data-color="teal"].active::before {
  background: #0e7490;
 }
-.dot[data-color="orange"].active {
+.dot[data-color="orange"].active::before {
  background: #c2410c;
 }
-.dot[data-color="gold"].active {
+.dot[data-color="gold"].active::before {
  background: #a16207;
 }
 
@@ -195,15 +205,6 @@ body {
   #93c5fd 100%
  );
 }
-.title-foryou {
- background-image: linear-gradient(
-  135deg,
-  #4a1942 0%,
-  #9d174d 40%,
-  #d4a0b9 70%,
-  #f0c4d8 100%
- );
-}
 .title-lietuva {
  background-image: linear-gradient(
   135deg,
@@ -269,35 +270,9 @@ body {
  margin: -14px 0 20px;
 }
 
-/* --- The Desk Quote — PARKED -------------------------------------------------
-   The quote is out of the design for now; the markup and the loadDeskQuote()
-   call are commented out. These rules are kept so restoring it needs no CSS work.
-   Note the stagger delays further down also name .desk-quote. */
-.desk-quote {
- border-left: 3px solid var(--accent);
- padding: 0 0 0 16px;
- margin-bottom: 20px;
-}
 
-.desk-quote p {
- font-family: var(--font-headline);
- font-size: 16px;
- font-weight: 400;
- line-height: 1.3;
- color: var(--text-dark);
- font-style: italic;
-}
 
-.desk-sig {
- display: block;
- margin-top: 6px;
- font-family: var(--font-body);
- font-size: 9px;
- font-weight: 400;
- font-variant: small-caps;
- letter-spacing: 0.15em;
- color: var(--text-light);
-}
+
 
 /* --- Dividers --- */
 .divider {
@@ -325,81 +300,16 @@ body {
 }
 
 /* Tech placeholders */
-.img-tech-1 {
- background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 40%, #3b82f6 100%);
-}
-.img-tech-2 {
- background: linear-gradient(135deg, #1e293b 0%, #334155 40%, #64748b 100%);
-}
 
 /* For You placeholders */
-.img-foryou-1 {
- background: linear-gradient(
-  135deg,
-  #2e1065 0%,
-  #7c3aed 30%,
-  #f0abfc 60%,
-  #fecdd3 100%
- );
- aspect-ratio: 1;
- max-width: 160px;
-}
 
 /* Lietuva placeholders */
-.img-lietuva-1 {
- background: linear-gradient(
-  135deg,
-  #166534 0%,
-  #15803d 30%,
-  #a3e635 60%,
-  #fef08a 100%
- );
-}
-.img-lietuva-2 {
- background: linear-gradient(135deg, #365314 0%, #65a30d 40%, #facc15 100%);
-}
 
 /* World placeholders */
-.img-world-1 {
- background: linear-gradient(
-  135deg,
-  #e0f2fe 0%,
-  #7dd3fc 40%,
-  #0ea5e9 70%,
-  #0c4a6e 100%
- );
-}
-.img-world-2 {
- background: linear-gradient(135deg, #fed7aa 0%, #f97316 40%, #7c2d12 100%);
-}
 
 /* Sports placeholders */
-.img-sports-1 {
- background: linear-gradient(
-  135deg,
-  #1e1b4b 0%,
-  #4338ca 30%,
-  #f97316 60%,
-  #fbbf24 100%
- );
-}
-.img-sports-2 {
- background: linear-gradient(135deg, #7c2d12 0%, #dc2626 40%, #fbbf24 100%);
-}
 
 /* Other placeholders */
-.img-other-1 {
- background: linear-gradient(
-  135deg,
-  #0f172a 0%,
-  #1e3a5f 30%,
-  #94a3b8 60%,
-  #f1f5f9 100%
- );
-}
-.img-other-2 {
- background: linear-gradient(135deg, #78350f 0%, #d97706 40%, #fef3c7 100%);
-}
 
 /* Card metadata */
 .card-meta {
@@ -543,108 +453,10 @@ body {
 }
 
 /* ============================================
-   FOR YOU — Special Section Styles
-   ============================================ */
-
-.foryou-feature {
- /* no special wrapper needed */
-}
-
-.foryou-feature-row {
- display: flex;
- gap: 16px;
- align-items: flex-start;
-}
-
-.foryou-album {
- border-radius: 6px;
- flex-shrink: 0;
-}
-
-.foryou-feature-text {
- display: flex;
- flex-direction: column;
- gap: 4px;
-}
-
-.foryou-feature-text .card-tag {
- font-family: var(--font-body);
- font-size: 10px;
- font-weight: 400;
- font-variant: small-caps;
- letter-spacing: 0.1em;
- color: var(--text-light);
- line-height: 1.5;
-}
-
-.foryou-artist {
- font-family: var(--font-headline);
- font-size: 22px;
- font-weight: 400;
- color: var(--text-dark);
-}
-
-.foryou-album-title {
- font-family: var(--font-headline);
- font-size: 16px;
- font-style: italic;
- color: var(--text-medium);
-}
-
-.card-link {
- display: inline-block;
- margin-top: 6px;
- font-family: var(--font-body);
- font-size: 12px;
- font-weight: 400;
- font-variant: small-caps;
- letter-spacing: 0.12em;
- color: var(--accent);
- text-decoration: none;
- transition: opacity 0.2s;
-}
-
-.card-link:hover {
- opacity: 0.7;
-}
-
-/* For You — Quote card */
-.foryou-quote-card {
- padding: 8px 0;
-}
-
-.foryou-blockquote {
- font-family: var(--font-headline);
- font-size: 20px;
- font-weight: 400;
- font-style: italic;
- line-height: 1.3;
- color: var(--text-dark);
- margin-bottom: 12px;
- border: none;
-}
-
-/* For You — Closing */
-.foryou-closing {
- padding: 20px 0 40px;
-}
-
-.closing-text {
- font-family: var(--font-headline);
- font-size: 22px;
- font-style: italic;
- color: var(--accent);
-}
-
-.checkmark {
- font-style: normal;
-}
-
-/* ============================================
    RESPONSIVE
    ============================================ */
 
-@media (max-width: 440px) {
+@media (max-width: 440px), (pointer: coarse) {
  :root {
   --phone-width: 100vw;
  }
@@ -668,6 +480,9 @@ body {
  .page {
   width: 100vw;
  }
+ .page-title {
+  font-size: clamp(48px, 20vw, 82px);
+ }
 }
 
 /* ============================================
@@ -688,11 +503,7 @@ body {
 .page.in-view .page-label,
 .page.in-view .page-title,
 .page.in-view .page-updated,
-.page.in-view .desk-quote,
 .page.in-view .news-card,
-.page.in-view .foryou-feature,
-.page.in-view .foryou-quote-card,
-.page.in-view .foryou-closing,
 .page.in-view .page-swipe-hint {
  animation: fadeSlideUp 0.5s ease both;
 }
@@ -706,20 +517,8 @@ body {
 .page.in-view .page-updated {
  animation-delay: 0.1s;
 }
-.page.in-view .desk-quote {
- animation-delay: 0.15s;
-}
 .page.in-view .news-card {
  animation-delay: 0.2s;
-}
-.page.in-view .foryou-feature {
- animation-delay: 0.2s;
-}
-.page.in-view .foryou-quote-card {
- animation-delay: 0.25s;
-}
-.page.in-view .foryou-closing {
- animation-delay: 0.3s;
 }
 .page.in-view .page-swipe-hint {
  animation-delay: 0.3s;
@@ -817,7 +616,7 @@ body {
 
 
 /* ============================================
-   EMPTY / NOT-YET-WIRED PAGES
+   EMPTY PAGES
    ============================================ */
 
 .page-empty {
@@ -841,613 +640,9 @@ body {
  color: var(--text-medium);
 }
 
-/* ============================================
-   RESULTS & STANDINGS (fetch_stats.py)
-   ============================================ */
 
-.beat-tagline {
- font-family: var(--font-body);
- font-size: 14px;
- color: var(--text-light);
- margin: 6px 0 20px;
-}
-
-/* ============================================
-   THE SPORTS DASHBOARD
-   ============================================ */
-
-/* The panels above the sports news: finished games, the teams being watched,
-   what is on next, and one feature with a championship table beside it.
-
-   Built as boxes rather than as loose typography, because this is the one part
-   of the page that is reference rather than reading — the eye should be able to
-   find the Thunder's record without reading a paragraph to reach it. */
-
-.dash {
- margin-bottom: 22px;
-}
-
-/* --- filter tabs --- */
-
-/* A strip, not a wrapping row: four tabs do not fit a narrow phone at a legible
-   size, and scrolling them keeps every label readable rather than shrinking two
-   of them to fit. */
-.dash-tabs {
- display: flex;
- gap: 4px;
- overflow-x: auto;
- scrollbar-width: none;
- border-bottom: 1px solid rgba(26, 26, 26, 0.1);
- margin-bottom: 14px;
-}
-
-.dash-tabs::-webkit-scrollbar {
- display: none;
-}
-
-.dash-tab {
- display: flex;
- align-items: center;
- gap: 6px;
- flex: 0 0 auto;
- padding: 8px 10px 10px;
- border: 0;
- border-bottom: 2px solid transparent;
- margin-bottom: -1px;
- background: none;
- cursor: pointer;
- font-family: var(--font-body);
- font-size: 11px;
- letter-spacing: 0.1em;
- text-transform: uppercase;
- color: var(--text-light);
- transition:
-  color 0.18s ease,
-  border-color 0.18s ease;
-}
-
-.dash-tab.is-active {
- color: var(--accent);
- border-bottom-color: var(--accent);
-}
-
-.dash-tab svg {
- width: 15px;
- height: 15px;
-}
-
-/* Two icon styles, because they are drawn two different ways: outlines that
-   should follow the tab's colour, and dots that should be solid. */
-.ico-line,
-.ico-dots {
- fill: none;
- stroke: currentColor;
- stroke-width: 1.35;
- stroke-linecap: round;
- stroke-linejoin: round;
-}
-
-.ico-dots {
- fill: currentColor;
- stroke: none;
-}
-
-/* --- panels --- */
-
-.panel {
- border: 1px solid rgba(26, 26, 26, 0.1);
- border-radius: 14px;
- padding: 12px 12px 14px;
- margin-bottom: 12px;
- background: rgba(255, 255, 255, 0.55);
-}
-
-.panel-head {
- display: flex;
- align-items: center;
- justify-content: space-between;
- gap: 8px;
- margin-bottom: 10px;
-}
-
-/* A panel that is only a card: the feature draws its own frame and its own
-   label inside it, so the shell contributes nothing but the filter hook. */
-.panel--bare {
- border: 0;
- padding: 0;
- background: none;
-}
-
-/* The card that holds a standings table. It carries no row of its own, so it has
-   none of the padding a strip of results cards needs — but it still grows and
-   still refuses to shrink, like every other card. */
-.panel-card.table-card {
- padding: 0;
- border: 0;
-}
-
-.panel-label {
- display: flex;
- align-items: center;
- gap: 7px;
- font-family: var(--font-body);
- font-size: 10px;
- letter-spacing: 0.12em;
- text-transform: uppercase;
- color: var(--text-mid, #4a4a4a);
-}
-
-.panel-label svg {
- width: 15px;
- height: 15px;
- color: var(--accent);
-}
-
-.panel-note {
- font-family: var(--font-body);
- font-size: 9px;
- letter-spacing: 0.09em;
- text-transform: uppercase;
- color: var(--text-light);
-}
-
-/* The strip inside a panel. Horizontally scrollable and snapped, so the next
-   card shows at the edge rather than being hidden — the reader should be able to
-   see there is more without a control telling them. */
-.panel-row {
- display: flex;
- gap: 9px;
- overflow-x: auto;
- scroll-snap-type: x proximity;
- scrollbar-width: none;
- /* Room for the card borders, which a clip would otherwise shave off. */
- padding: 1px;
- margin: -1px;
-}
-
-.panel-row::-webkit-scrollbar {
- display: none;
-}
-
-.panel-card {
- /* Grow to fill, never shrink. Three cards in a 340px panel are 132px each and
-     the strip scrolls; one card grows to the whole width instead of sitting in a
-     strip with 200px of nothing beside it. Shrinking is the one thing that must
-     not happen — a five-fixture day would squeeze every card to an unreadable
-     60px rather than letting the reader scroll. */
- flex: 1 0 132px;
- max-width: 100%;
- scroll-snap-align: start;
- border: 1px solid rgba(26, 26, 26, 0.09);
- border-radius: 11px;
- padding: 9px 10px 8px;
- background: #fff;
-}
-
-/* The competition, on the card rather than only on the tab: a strip mixing an
-   NBA result and a grand prix needs to say which is which on each one. */
-.card-league {
- font-family: var(--font-body);
- font-size: 8px;
- letter-spacing: 0.11em;
- text-transform: uppercase;
- color: var(--text-light);
- margin-bottom: 7px;
-}
-
-.card-title {
- font-family: var(--font-body);
- font-size: 11px;
- font-weight: 600;
- color: var(--text-dark);
- margin-bottom: 5px;
-}
-
-.card-status {
- font-family: var(--font-body);
- font-size: 8px;
- letter-spacing: 0.11em;
- text-transform: uppercase;
- color: var(--text-light);
- margin-top: 8px;
-}
-
-/* --- a finished game --- */
-
-.team-line {
- display: flex;
- align-items: center;
- gap: 6px;
- padding: 4px 0;
- font-family: var(--font-body);
- font-size: 12px;
- color: var(--text-mid, #4a4a4a);
-}
-
-/* The winner is emphasised by weight rather than colour: a scoreline is a fact,
-   and painting one side red reads as a judgement about the other. */
-.team-line.is-winner .team-name,
-.team-line.is-winner .team-score {
- font-weight: 700;
- color: var(--text-dark);
-}
-
-.team-crest {
- width: 18px;
- height: 18px;
- flex: 0 0 auto;
- object-fit: contain;
-}
-
-.team-name {
- flex: 1 1 auto;
- overflow: hidden;
- text-overflow: ellipsis;
- white-space: nowrap;
-}
-
-.team-score {
- flex: 0 0 auto;
- font-variant-numeric: tabular-nums;
-}
-
-/* --- a race --- */
-
-.race-line {
- display: flex;
- align-items: baseline;
- gap: 5px;
- padding: 3px 0;
- font-family: var(--font-body);
- font-size: 11px;
- color: var(--text-mid, #4a4a4a);
-}
-
-.race-place {
- flex: 0 0 auto;
- color: var(--text-light);
-}
-
-.race-name {
- flex: 1 1 auto;
- overflow: hidden;
- text-overflow: ellipsis;
- white-space: nowrap;
-}
-
-.race-value {
- flex: 0 0 auto;
- font-variant-numeric: tabular-nums;
- color: var(--text-light);
-}
-
-/* --- team spotlight --- */
-
-/* Wider than the results cards, because this one carries a table: the identity on
-   the left and the season on the right, which is the whole point of the panel.
-   One on its own grows to the panel — there is no EuroLeague source, so the
-   mock's two-card spotlight is usually a one-card spotlight. */
-.panel-card.spot-card {
- flex-basis: 288px;
- border-left: 3px solid var(--accent);
-}
-
-.spot-top {
- display: flex;
- align-items: flex-start;
- justify-content: space-between;
- gap: 10px;
-}
-
-.spot-id {
- flex: 0 0 auto;
- width: 96px;
-}
-
-.spot-crest {
- width: 42px;
- height: 42px;
- object-fit: contain;
- margin-bottom: 6px;
-}
-
-.spot-city {
- font-family: var(--font-body);
- font-size: 8px;
- letter-spacing: 0.12em;
- text-transform: uppercase;
- color: var(--text-light);
-}
-
-.spot-name {
- font-family: var(--font-display);
- font-size: 15px;
- letter-spacing: 0.02em;
- text-transform: uppercase;
- color: var(--text-dark);
- line-height: 1.15;
-}
-
-.spot-record {
- font-family: var(--font-body);
- font-size: 15px;
- font-weight: 600;
- color: var(--text-dark);
- margin-top: 6px;
- font-variant-numeric: tabular-nums;
-}
-
-.spot-standing {
- font-family: var(--font-body);
- font-size: 10px;
- color: var(--text-light);
-}
-
-.spot-stats {
- flex: 1 1 auto;
- min-width: 0;
-}
-
-.spot-label {
- font-family: var(--font-body);
- font-size: 8px;
- letter-spacing: 0.11em;
- text-transform: uppercase;
- color: var(--text-light);
- margin-bottom: 5px;
-}
-
-.spot-stat {
- display: flex;
- align-items: baseline;
- justify-content: space-between;
- gap: 8px;
- padding: 2px 0;
- font-family: var(--font-body);
- font-size: 11px;
- color: var(--text-light);
-}
-
-/* Tabular figures, so the columns of averages line up down the card the way a
-   stat sheet does — proportional digits make them wander. */
-.spot-stat-value {
- color: var(--text-dark);
- font-weight: 500;
- font-variant-numeric: tabular-nums;
-}
-
-.spot-player {
- margin-top: 10px;
- padding-top: 9px;
- border-top: 1px solid rgba(26, 26, 26, 0.08);
-}
-
-.spot-player svg {
- width: 12px;
- height: 12px;
- color: var(--accent);
- margin-right: 5px;
- vertical-align: -1px;
-}
-
-.spot-player-name {
- font-family: var(--font-body);
- font-size: 13px;
- color: var(--text-dark);
- margin: 3px 0 7px;
-}
-
-.spot-player-stats {
- display: flex;
- gap: 18px;
-}
-
-.spot-player-stat {
- display: flex;
- flex-direction: column;
- align-items: center;
-}
-
-.spot-player-stat b {
- font-family: var(--font-body);
- font-size: 14px;
- font-weight: 600;
- color: var(--text-dark);
- font-variant-numeric: tabular-nums;
-}
-
-.spot-player-stat span {
- font-family: var(--font-body);
- font-size: 8px;
- letter-spacing: 0.1em;
- text-transform: uppercase;
- color: var(--text-light);
-}
-
-/* --- headline-only cards --- */
-
-/* Used by the competitions this page has news for and no results for, so the tab
-   is not an empty frame. It is an index rather than a read: no picture, no
-   summary, so several headlines fit where one article card would. */
-.story-title {
- font-family: var(--font-display);
- font-size: 13px;
- line-height: 1.3;
- color: var(--text-dark);
- text-decoration: none;
- /* Four lines, because a headline index is still headlines — but not five, or
-     one long headline sets the height of every card in the strip. */
- display: -webkit-box;
- -webkit-line-clamp: 4;
- -webkit-box-orient: vertical;
- overflow: hidden;
-}
-
-.story-source {
- font-family: var(--font-body);
- font-size: 8px;
- letter-spacing: 0.11em;
- text-transform: uppercase;
- color: var(--text-light);
- margin-top: 8px;
-}
-
-/* --- the feature --- */
-
-.feature {
- padding: 0;
- overflow: hidden;
-}
-
-.feature-img {
- display: block;
- width: 100%;
- aspect-ratio: 16 / 9;
- object-fit: cover;
-}
-
-.feature-body {
- padding: 11px 12px;
-}
-
-.feature-kicker {
- font-family: var(--font-body);
- font-size: 8px;
- letter-spacing: 0.12em;
- text-transform: uppercase;
- color: var(--accent);
- margin-bottom: 5px;
-}
-
-.feature-title {
- font-family: var(--font-display);
- font-size: 17px;
- line-height: 1.22;
- margin: 0 0 7px;
-}
-
-.feature-title a {
- color: var(--text-dark);
- text-decoration: none;
-}
-
-.feature-summary {
- font-family: var(--font-body);
- font-size: 12px;
- line-height: 1.45;
- color: var(--text-mid, #4a4a4a);
- /* Three lines, clamped in the layout rather than the data: an RSS description
-     runs to whatever length the publisher felt like, and cutting the string to a
-     character count breaks a word to guess at a width the stylesheet already
-     knows. */
- display: -webkit-box;
- -webkit-line-clamp: 3;
- -webkit-box-orient: vertical;
- overflow: hidden;
-}
-
-.feature-source {
- font-family: var(--font-body);
- font-size: 9px;
- letter-spacing: 0.08em;
- text-transform: uppercase;
- color: var(--text-light);
- margin-top: 8px;
-}
-
-.feature-more {
- display: inline-block;
- font-family: var(--font-body);
- font-size: 12px;
- color: var(--accent);
- text-decoration: none;
- margin-top: 10px;
-}
-
-.feature-side {
- padding: 0 12px 12px;
-}
-
-/* --- tables --- */
-
-/* Equal columns, so a table of positions lines up down the page whatever the
-   sport — the same grid draws a race result and a player's averages. */
-.table {
- border-top: 1px solid rgba(26, 26, 26, 0.1);
-}
-
-.table-label {
- font-family: var(--font-body);
- font-size: 8px;
- letter-spacing: 0.11em;
- text-transform: uppercase;
- color: var(--text-light);
- margin-bottom: 5px;
-}
-
-.table-row {
- display: grid;
- /* One flexible column and the rest sized to their contents. The render decides
-     which is which — see buildTable — because it depends on what the table holds:
-     a player's name needs the room, a driver's position does not, and a fixed
-     choice truncates one or strands the other. */
- grid-template-columns: var(--table-cols, repeat(3, minmax(0, 1fr)));
- gap: 6px;
- padding: 3px 0;
- border-bottom: 1px solid rgba(26, 26, 26, 0.05);
- font-family: var(--font-body);
- font-size: 11px;
- color: var(--text-dark);
-}
-
-.table-row--head {
- font-size: 9px;
- letter-spacing: 0.07em;
- text-transform: uppercase;
- color: var(--text-light);
-}
-
-.table-cell {
- overflow: hidden;
- text-overflow: ellipsis;
- white-space: nowrap;
-}
-
-/* The first column is the position or the player: whichever, it is where the eye
-   lands, so it carries the only emphasis in the table. */
-.table-cell--lead {
- font-weight: 600;
-}
-
-/* --- the news below the dashboard --- */
-
-/* The tabs filter the headlines as well as the panels: a reader who tapped NBA
-   wants NBA news under the NBA scoreboard, not a mixed feed. */
-.feed-empty {
- display: none;
- font-family: var(--font-body);
- font-size: 13px;
- color: var(--text-light);
- padding: 4px 0 8px;
-}
-
-.feed.is-empty .feed-empty {
- display: block;
-}
-
-/* One rule, used by the tab filter and by anything else that needs to take a
-   node out of the flow without removing it.
-
-   The class is doubled so it outranks any single-class rule that sets a display
-   of its own — the tabs and cards above are flex, and a hidden element that
-   stays `display: flex` is a visible gap rather than nothing. Doubling the class
-   rather than reaching for `!important` keeps this overridable, which matters
-   because the next person to hide something should not have to out-shout it. */
-.is-hidden.is-hidden {
- display: none;
-}
-
-.ico-solid {
- fill: currentColor;
- stroke: none;
+.page-swipe-hint { width: 100%; border: 0; background: transparent; font-family: inherit; cursor: pointer; }
+.card-nav-btn { min-width: 44px; min-height: 44px; }
+@media (prefers-reduced-motion: reduce) {
+ *, *::before, *::after { animation: none !important; transition: none !important; }
 }
