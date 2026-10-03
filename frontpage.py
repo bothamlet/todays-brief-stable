@@ -28,6 +28,8 @@ Usage:
 from __future__ import annotations
 
 import sys
+import os
+import re
 from pathlib import Path
 
 PAPER = Path("_site/paper.html")
@@ -65,7 +67,7 @@ def find_browser() -> Path | None:
     number: pinning one means this script breaks the next time a browser is
     installed, which is a bad trade for a decorative image.
     """
-    root = Path.home() / ".cache" / "ms-playwright"
+    root = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", str(Path.home() / ".cache" / "ms-playwright")))
     if not root.is_dir():
         return None
     found = sorted(root.glob("chromium-*/chrome-linux*/chrome"))
@@ -74,7 +76,10 @@ def find_browser() -> Path | None:
             "chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"
         )
     )
-    return found[-1] if found else None
+    def revision(path: Path) -> int:
+        match = re.search(r"-(\d+)", str(path))
+        return int(match.group(1)) if match else 0
+    return max(found, key=revision) if found else None
 
 
 def capture(output: Path) -> bool:
@@ -119,6 +124,7 @@ def capture(output: Path) -> bool:
 
 def main() -> None:
     output = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_OUTPUT
+    output.unlink(missing_ok=True)
 
     if not capture(output):
         # Non-zero so deliver.sh can decide, but the message says what to do.

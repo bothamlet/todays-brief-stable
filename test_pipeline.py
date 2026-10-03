@@ -21,12 +21,13 @@ fixed and immediately re-broken while fixing something adjacent.
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 from collections import Counter
 from datetime import datetime, timezone
 import json
 
 from common import dedupe_by_url, newest_first, parse_timestamp
-from publishers import Allowlist, forms, normalise  # pyright: ignore[reportMissingImports]
+from publishers import Allowlist, forms, normalise
 from textutil import ordinal, shared_words, significant_tokens
 
 
@@ -277,7 +278,7 @@ class TestLietuvaFilters(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        import fetch_lietuva  # pyright: ignore[reportMissingImports]
+        import fetch_lietuva
 
         cls.lt = fetch_lietuva
 
@@ -349,7 +350,7 @@ class TestTopicGrouping(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        import fetch_lietuva  # pyright: ignore[reportMissingImports]
+        import fetch_lietuva
 
         cls.lt = fetch_lietuva
 
@@ -418,7 +419,7 @@ class TestTopicGrouping(unittest.TestCase):
 class TestSportsInterests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        import fetch_sports  # pyright: ignore[reportMissingImports]
+        import fetch_sports
 
         cls.sp = fetch_sports
 
@@ -472,7 +473,7 @@ class TestSportsLeagues(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        import fetch_sports  # pyright: ignore[reportMissingImports]
+        import fetch_sports
 
         cls.sp = fetch_sports
 
@@ -514,7 +515,7 @@ class TestSportsLeagues(unittest.TestCase):
 class TestStatsHelpers(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        import fetch_stats  # pyright: ignore[reportMissingImports]
+        import fetch_stats
 
         cls.fs = fetch_stats
 
@@ -554,7 +555,7 @@ class TestStatsHelpers(unittest.TestCase):
         no story carries produces an empty list, then no panel, then no error —
         the same quiet-failure shape as the standings lookup.
         """
-        import fetch_sports  # pyright: ignore[reportMissingImports]
+        import fetch_sports
 
         known = set(fetch_sports.LEAGUES.values())
         self.assertTrue(known, "LEAGUES must not be empty for this to mean anything")
@@ -613,7 +614,7 @@ class TestBundleEscaping(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        import bundle  # pyright: ignore[reportMissingImports]
+        import bundle
 
         cls.bundle = bundle
 
@@ -729,9 +730,15 @@ class TestBundleEscaping(unittest.TestCase):
 class TestTelegramMessage(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        import telegram  # pyright: ignore[reportMissingImports]
+        import telegram
 
         cls.tg = telegram
+
+    def setUp(self):
+        self.rows = [{"title": f"Fixture story {i}", "briefing_rank": i} for i in range(4)]
+        fixture = patch.object(self.tg, "load_json", return_value=self.rows)
+        fixture.start()
+        self.addCleanup(fixture.stop)
 
     def test_caption_says_what_the_paper_is(self) -> None:
         text = self.tg.caption()
@@ -746,7 +753,7 @@ class TestTelegramMessage(unittest.TestCase):
         """
         fresh = self.tg.caption()
         stale = self.tg.caption(stale=True)
-        self.assertTrue(stale.startswith("YESTERDAY'S ISSUE"))
+        self.assertTrue(stale.startswith("PREVIOUS ISSUE"))
         self.assertGreater(len(stale), len(fresh))
         self.assertLessEqual(len(stale), self.tg.CAPTION_LIMIT)
 
@@ -774,7 +781,7 @@ class TestTechBeat(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        import fetch_tech  # pyright: ignore[reportMissingImports]
+        import fetch_tech
 
         cls.tech = fetch_tech
 

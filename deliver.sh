@@ -42,18 +42,22 @@
 
 set -uo pipefail
 
-cd "$(dirname "$0")"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT" || exit 1
+exec 9>"$ROOT/.run.lock"
+flock -n 9 || { echo "deliver.sh: another run or delivery is already in progress" >&2; exit 1; }
+export BRIEF_LOCK_HELD="$ROOT"
 
 # How long to wait for the network after a resume. Generous, because the cost of
 # waiting is a paper a few minutes late and the cost of not waiting is no paper at
 # all — the timer fires once, and a failed run is not retried until tomorrow.
-NETWORK_WAIT_SECONDS=300
+NETWORK_WAIT_SECONDS=${BRIEF_NETWORK_WAIT_SECONDS:-300}
 
 # How long to keep trying to reach Telegram. Separate from the wait above because
 # it covers a different failure: the network being up and the API being slow, or
 # a connection dropped mid-upload.
 DELIVERY_ATTEMPTS=3
-DELIVERY_WAIT_SECONDS=60
+DELIVERY_WAIT_SECONDS=${BRIEF_DELIVERY_WAIT_SECONDS:-60}
 
 # How many times to build before giving up and sending what is already on disk.
 # The pipeline reads about twenty feeds and calls a model API, and any one of them
@@ -63,7 +67,7 @@ DELIVERY_WAIT_SECONDS=60
 # same failure — a third attempt mostly spends another eleven minutes arriving at
 # the same answer.
 PIPELINE_ATTEMPTS=2
-PIPELINE_WAIT_SECONDS=120
+PIPELINE_WAIT_SECONDS=${BRIEF_PIPELINE_WAIT_SECONDS:-120}
 
 QUIET=0
 SKIP_PIPELINE=0
@@ -145,7 +149,8 @@ wait_for_network || true
 # exited 0 after failing and left the previous issue on the page as if it were
 # today's.
 if ((SKIP_PIPELINE)); then
-    log "Skipping the pipeline (--no-pipeline)."
+    log "Skipping the pipeline (--no-pipeline); explicitly resending the issue."
+    rm -f _site/delivery.json
 else
     for ((attempt = 1; attempt <= PIPELINE_ATTEMPTS; attempt++)); do
         log "Building the paper… (attempt $attempt of $PIPELINE_ATTEMPTS)"
@@ -178,6 +183,7 @@ fi
 
 # Soft: a paper without a picture is still a paper, and telegram.py falls back to
 # sending the briefing as a message rather than losing the headlines with it.
+rm -f _site/frontpage.jpg
 python3 frontpage.py || log "  (no front page image this morning)"
 
 # Retried, because the timer fires exactly once. A message that fails to send at
@@ -186,10 +192,17 @@ python3 frontpage.py || log "  (no front page image this morning)"
 sent=1
 for ((attempt = 1; attempt <= DELIVERY_ATTEMPTS; attempt++)); do
     if ((pipeline_status != 0)); then
-        python3 telegram.py --stale && sent=0
+        python3 telegram.py --stale
+        delivery_status=$?
     else
-        python3 telegram.py && sent=0
+        python3 telegram.py
+        delivery_status=$?
     fi
+    if ((delivery_status == 3)); then
+        log "Paper built; Telegram delivery skipped because credentials are missing."
+        exit "$pipeline_status"
+    fi
+    ((delivery_status == 0)) && sent=0
     ((sent == 0)) && break
 
     if ((attempt < DELIVERY_ATTEMPTS)); then
@@ -200,17 +213,13 @@ for ((attempt = 1; attempt <= DELIVERY_ATTEMPTS; attempt++)); do
 done
 
 if ((sent != 0)); then
-    log "Telegram did not accept the paper after $DELIVERY_ATTEMPTS attempts."
+    printf 'deliver.sh: Telegram did not accept the paper after %s attempts.\n' "$DELIVERY_ATTEMPTS" >&2
+    exit 1
 fi
 
 elapsed=$(($(date +%s) - started))
 log ""
 log "Delivered in $((elapsed / 60))m $((elapsed % 60))s."
 
-# A failed pipeline is reported as a failure, but a paper that was built and sent
-# is not: the exit code is what the timer's journal shows, and a run that delivered
-# yesterday's issue did its job.
-if ((pipeline_status != 0 && sent == 0)); then
-    exit "$pipeline_status"
-fi
-exit 0
+# Report stale delivery as a failed build, even when sending succeeded.
+exit "$pipeline_status"

@@ -35,12 +35,12 @@ from __future__ import annotations
 import json
 import os
 import sys
+import hashlib
+from datetime import date
 from pathlib import Path
 from typing import Any
 
-# Sibling module. Python puts its directory on sys.path; pyright analyses each
-# file standalone and cannot see it, hence the directive.
-from common import load_json  # pyright: ignore[reportMissingImports]
+from common import load_json, parse_timestamp, save_json
 
 import requests
 
@@ -169,7 +169,7 @@ def headline_lines(limit: int = MAX_HEADLINES) -> list[str]:
     rows = load_json(Path("data/world_covered.json"))
     if not isinstance(rows, list):
         return []
-    ranked = [r for r in rows if isinstance(r, dict) and r.get("briefing_rank")]
+    ranked = [r for r in rows if isinstance(r, dict) and type(r.get("briefing_rank")) is int]
     ranked.sort(key=lambda r: r["briefing_rank"])
     return [str(r["title"]).strip() for r in ranked if r.get("title")][:limit]
 
@@ -184,14 +184,14 @@ def caption(stale: bool = False) -> str:
     """
     stories = load_json(Path("data/world_covered.json"))
     total = (
-        len([r for r in stories if isinstance(r, dict) and r.get("briefing_rank")])
+        len([r for r in stories if isinstance(r, dict) and type(r.get("briefing_rank")) is int])
         if isinstance(stories, list)
         else 0
     )
 
     lines: list[str] = []
     if stale:
-        lines += ["YESTERDAY'S ISSUE — this morning's run did not finish.", ""]
+        lines += [f"PREVIOUS ISSUE ({issue_date()}) — a fresh issue is unavailable.", ""]
     if total:
         lines.append(f"{total} in the briefing")
     lines += [f"• {title}" for title in headline_lines()]
@@ -291,16 +291,51 @@ def send_paper(token: str, chat: str) -> bool:
         )
 
 
+def issue_date() -> str:
+    try:
+        payload = json.loads(Path("data/built.json").read_text(encoding="utf-8"))
+        stamp = parse_timestamp(payload.get("built_at"))
+        return stamp.astimezone().date().isoformat() if stamp else "date unknown"
+    except (OSError, ValueError, AttributeError):
+        return "date unknown"
+
+
 def _today() -> str:
-    import datetime
-
-    return datetime.date.today().isoformat()
+    return issue_date() if issue_date() != "date unknown" else date.today().isoformat()
 
 
-def main() -> None:
+def is_stale() -> bool:
+    return issue_date() != date.today().isoformat()
+
+
+def deliver(token: str, chat: str, stale: bool) -> bool:
+    """Remember accepted parts so a failed document does not resend the photo."""
+    if not PAPER.is_file():
+        print("  telegram: no paper to send")
+        return False
+    identity = hashlib.sha256(PAPER.read_bytes() + chat.encode() + str(stale).encode() + date.today().isoformat().encode()).hexdigest()
+    receipt_path = PAPER.parent / "delivery.json"
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        receipt = {}
+    if not isinstance(receipt, dict) or receipt.get("issue") != identity:
+        receipt = {"issue": identity, "briefing": False, "paper": False}
+    for part, send in (("briefing", lambda: send_briefing(token, chat, stale)),
+                       ("paper", lambda: send_paper(token, chat))):
+        if receipt.get(part):
+            continue
+        if not send():
+            return False
+        receipt[part] = True
+        save_json(receipt, receipt_path)
+    return True
+
+
+def main() -> int:
     # Flags are read here rather than at import, so importing this module in a
     # test does not depend on what the test runner was called with.
-    stale = "--stale" in sys.argv
+    stale = "--stale" in sys.argv or is_stale()
     text_only = "--text-only" in sys.argv
 
     token = env("TELEGRAM_BOT_TOKEN")
@@ -312,9 +347,9 @@ def main() -> None:
         if not token:
             print("TELEGRAM_BOT_TOKEN is not set, so there is nothing to ask.")
             print(f"Put it in {ENV_FILE} or export it.")
-            return
+            return 0
         find_chat(token)
-        return
+        return 0
 
     if not token or not chat:
         missing = [
@@ -330,20 +365,17 @@ def main() -> None:
         # token is not something this command can help with.
         if not chat and token:
             print("Find it with:  python3 telegram.py --find-chat")
-        return
+        return 3
 
-    # Ordered, because the front page is the notification and the paper is the
-    # payload: a chat should say what happened before it hands over the file.
-    sent = send_briefing(token, chat, stale)
-
+    if "--check-config" in sys.argv:
+        return 0
     if text_only:
-        print("  telegram: text only, as asked.")
-        return
-
-    sent = send_paper(token, chat) and sent
-    if sent:
-        print(f"  telegram: delivered ({caption(stale).splitlines()[0]})")
+        return 0 if send_briefing(token, chat, stale) else 1
+    if not deliver(token, chat, stale):
+        return 1
+    print(f"  telegram: delivered ({caption(stale).splitlines()[0]})")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
