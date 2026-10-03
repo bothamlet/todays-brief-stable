@@ -144,6 +144,9 @@ IMAGE_UPGRADES: tuple[tuple[re.Pattern[str], str], ...] = (
 
 def upgrade_image(url: str) -> str:
     """Ask the outlet's CDN for a card-sized crop instead of a thumbnail."""
+    # og:image attributes use HTML entities. Leaving &amp; in a query changes
+    # parameter names (e.g. amp;w), causing CDNs to return their default thumbnail.
+    url = _unescape(url)
     for pattern, replacement in IMAGE_UPGRADES:
         url = pattern.sub(replacement, url)
 

@@ -62,6 +62,18 @@ class TestPhoneIssue(unittest.TestCase):
         self.assertEqual(self.errors, [])
         self.assertNotIn('user-scalable=no', self.page.locator('meta[name=viewport]').get_attribute('content'))
 
+    def test_shared_photos_are_stored_once_and_hydrated_before_rendering(self):
+        import demo
+        image = demo.sample_data()['world_covered'][0]['urlToImage']
+        self.assertEqual(self.paper.read_text().count(image), 1)
+        self.assertTrue(self.page.locator('.card-image img').evaluate_all(
+            '(images) => images.every(image => image.getAttribute("src").startsWith("data:image/"))'))
+        self.assertEqual(self.page.locator('#worldStories .card-image img').first.evaluate(
+            'async image => { await image.decode(); return [image.naturalWidth, image.naturalHeight]; }'), [480, 270])
+        self.assertEqual(self.page.evaluate('window.__BRIEF__["data/world_covered.json"][0].urlToImage'), image)
+        self.page.locator('#worldStories .card-nav-btn').last.click()
+        self.assertEqual(self.page.locator('#worldStories .card-image img').first.get_attribute('src'), image)
+
     def test_card_arrow_cannot_switch_section_and_vertical_keys_stay_local(self):
         self.page.locator('#worldStories .card-nav-btn').last.focus()
         self.page.keyboard.press('ArrowRight')

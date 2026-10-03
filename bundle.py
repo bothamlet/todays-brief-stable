@@ -37,12 +37,14 @@ Usage:
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 from common import atomic_write, newest_first
+from rss_feeds import upgrade_image, fetch_og_image
 from pathlib import Path
 
 import requests
@@ -174,8 +176,35 @@ def inline_stylesheet(html: str) -> tuple[str, int]:
 
 
 IMAGE_LIMIT = 8 * 1024 * 1024
-# Leave room for fonts and text under Telegram's 50 MB document limit.
-IMAGE_BUDGET = 40 * 1024 * 1024
+# Budget unique embedded photos, keeping normal phone attachments manageable.
+IMAGE_BUDGET = 12 * 1024 * 1024
+
+
+def preferred_image_url(url: str, article_url: str, *, offline: bool = False) -> str:
+    """Fix escaped CDN parameters and use Guardian's published larger preview."""
+    url = upgrade_image(url)
+    if offline:
+        return url
+    try:
+        image = urlsplit(url)
+        article = urlsplit(article_url)
+        width = int(parse_qs(image.query).get("width", ["0"])[0])
+    except (ValueError, TypeError):
+        return url
+    if (image.hostname == "i.guim.co.uk" and 0 < width < 1000
+            and article.scheme in ("http", "https")
+            and article.hostname in ("theguardian.com", "www.theguardian.com")
+            and not article.username):
+        preview = fetch_og_image(article_url)
+        if preview:
+            try:
+                parsed = urlsplit(preview)
+                preview_width = int(parse_qs(parsed.query).get("width", ["0"])[0])
+                if parsed.hostname == image.hostname and preview_width > width:
+                    return preview
+            except ValueError:
+                pass
+    return url
 
 
 def download_image(url: str) -> bytes | None:
@@ -221,8 +250,8 @@ def image_uri(data: bytes) -> str | None:
     return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
 
 
-def inline_images(payload: dict[str, object], *, offline: bool = False) -> None:
-    """Embed original photo bytes, preserving online fallbacks unless offline."""
+def inline_images(payload: dict[str, object], *, offline: bool = False) -> dict[str, str]:
+    """Store each unique photo once and replace repeated copies with asset keys."""
     references = []
     def walk(value):
         if isinstance(value, dict):
@@ -234,18 +263,26 @@ def inline_images(payload: dict[str, object], *, offline: bool = False) -> None:
             for child in value:
                 walk(child)
     walk(payload)
+    # Resolve once per image/article pair, including images in cached issue data.
+    pairs = list(dict.fromkeys((row["urlToImage"], str(row.get("url") or "")) for row in references))
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        preferred = dict(zip(pairs, pool.map(
+            lambda pair: preferred_image_url(*pair, offline=offline), pairs)))
+    for row in references:
+        row["urlToImage"] = preferred[(row["urlToImage"], str(row.get("url") or ""))]
     urls = list(dict.fromkeys(row["urlToImage"] for row in references))
     replacements = {}
+    assets: dict[str, str] = {}
     spent = 0
     with ThreadPoolExecutor(max_workers=6) as pool:
         downloader = lambda url: download_image(url) if not offline or url.startswith("data:") else None
         for url, data in zip(urls, pool.map(downloader, urls)):
             uri = image_uri(data) if data else None
-            # Count duplicate appearances: JSON embeds each occurrence separately.
-            appearances = sum(row["urlToImage"] == url for row in references)
-            cost = len(uri or "") * appearances
+            key = "brief-image:" + hashlib.sha256(data).hexdigest() if data and uri else ""
+            cost = 0 if key in assets else len(uri or "")
             if uri and spent + cost <= IMAGE_BUDGET:
-                replacements[url] = uri
+                replacements[url] = key
+                assets[key] = uri
                 spent += cost
             else:
                 try:
@@ -256,9 +293,10 @@ def inline_images(payload: dict[str, object], *, offline: bool = False) -> None:
                 replacements[url] = url if remote and not offline else ""
     for row in references:
         row["urlToImage"] = replacements[row["urlToImage"]]
-    embedded = sum(uri.startswith("data:") for uri in replacements.values())
+    embedded = sum(uri.startswith("brief-image:") for uri in replacements.values())
     remote = sum(uri.startswith(("http://", "https://")) for uri in replacements.values())
-    print(f"  photos: {embedded}/{len(urls)} embedded, {remote} online fallbacks")
+    print(f"  photos: {embedded}/{len(urls)} embedded ({len(assets)} unique), {remote} online fallbacks")
+    return assets
 
 
 def embed_data(html: str, *, offline: bool = False) -> tuple[str, int, int]:
@@ -298,10 +336,17 @@ def embed_data(html: str, *, offline: bool = False) -> tuple[str, int, int]:
         other.sort(key=lambda row: {"high": 0, "medium": 1, "low": 2}.get(
             str((row.get("classification") or {}).get("significance") or ""), 3))
         payload["data/world_tracked.json"] = other[:5]
-    inline_images(payload, offline=offline)
+    assets = inline_images(payload, offline=offline)
 
     block = (
-        "<script>window.__BRIEF__=" + escape_json(payload) + ";</script>\n"
+        "<script>window.__BRIEF__=" + escape_json(payload) + ";\n"
+        "(() => { const images=" + escape_json(assets) + ";\n"
+        "function hydrate(value) {\n"
+        "  if (!value || typeof value !== 'object') return;\n"
+        "  if (Object.hasOwn(images, value.urlToImage)) value.urlToImage = images[value.urlToImage];\n"
+        "  Object.values(value).forEach(hydrate);\n"
+        "}\n"
+        "hydrate(window.__BRIEF__); })();</script>\n"
     )
     # Before the first inlined script, which is where the reader is defined.
     marker = "<script>"
