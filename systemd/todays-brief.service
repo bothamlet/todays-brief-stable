@@ -1,44 +1,15 @@
 [Unit]
-Description=Today's Brief — build the morning paper and send it to the phone
-
-# Deliberately NOT ordering against network-online.target, which is what the unit
-# did first and what the first real morning exposed.
-#
-# That target is a one-shot: it was satisfied when the laptop booted, so after a
-# suspend it is still "active", the After= constraint is vacuously true, and the
-# job starts the instant the machine resumes. On 17 September it did exactly that
-# — fired at 07:02:51, six seconds after the lid opened — and failed with
-# ConnectionError on every request, because a machine that has just woken has no
-# DNS and no route for the first half-minute.
-#
-# deliver.sh waits for a real TCP connection instead. Waking up is what the timer
-# is for; being ready to use the network is a thing to check, not to assume.
+Description=Today's Brief — build the morning paper and deliver it to a phone
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/Documents/News
-ExecStart=%h/Documents/News/deliver.sh --quiet
-
-# A user service inherits almost nothing: not the PATH from your shell, not
-# PYTHONPATH, not anything set in ~/.profile. python3 is in /usr/bin and the
-# pipeline needs nothing else — but saying so is what stops this working when run
-# by hand and failing at seven in the morning, which is a difference nobody
-# enjoys diagnosing.
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=@PROJECT_ROOT@
+ExecStart=/bin/bash @PROJECT_ROOT@/deliver.sh --quiet
+Environment="PATH=@PYTHON_BIN@:/usr/local/bin:/usr/bin:/bin"
 Environment=PYTHONUNBUFFERED=1
-
-# The Telegram credentials are read by deliver.sh from
-# ~/.config/todays-brief/env — deliberately not set here, because unit files are
-# world-readable on many systems and a token does not belong in one. They are
-# optional: without them the paper still builds and delivery says it is skipping.
-
-# A run is about six minutes, and the waits in deliver.sh add a few more if the
-# network is slow to come back. This is the ceiling, not the expectation: a hung
-# feed should not still be holding the timer when tomorrow's turn comes.
-TimeoutStartSec=90min
-
+# This optional, private file supplies the model key and Telegram credentials.
+EnvironmentFile=-%h/.config/todays-brief/env
+# TCP readiness after resume is checked by deliver.sh.
+TimeoutStartSec=3h
 StandardOutput=journal
 StandardError=journal
-
-[Install]
-WantedBy=default.target

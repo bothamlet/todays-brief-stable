@@ -2,24 +2,10 @@
 Description=Today's Brief, every morning
 
 [Timer]
-# 07:00 local time, and local means local: systemd's calendar understands the
-# timezone the machine is set to, so this is 07:00 in summer and 07:00 in winter.
-# Cron has no such notion — the entry this replaces said 07:00 and fired an hour
-# off for half the year.
 OnCalendar=*-*-* 07:00:00
-
-# The whole point. A laptop is suspended at seven in the morning, so the moment
-# to run this is the moment it is not — systemd records that the time was missed
-# and fires the job on the next resume, once, rather than skipping the day.
-#
-# This is why it is a timer and not crontab. `crontab -l` has said
-# "0 7 * * * ./run.sh" since the pipeline was written and has never once run.
+# Run once after a missed morning when the host resumes.
 Persistent=true
-
-# Up to a minute either way, so this is not one more thing hitting the network at
-# exactly 07:00:00 alongside every other scheduled job on the machine.
 RandomizedDelaySec=60
-
 Unit=todays-brief.service
 
 [Install]

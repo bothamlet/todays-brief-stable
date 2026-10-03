@@ -19,11 +19,16 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
 
-UNIT_DIR="$HOME/.config/systemd/user"
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNITS=(todays-brief.service todays-brief.timer)
 
+if [[ $# -gt 1 || ( $# -eq 1 && "$1" != "--remove" ) ]]; then
+    echo "Usage: ./install-timer.sh [--remove]" >&2
+    exit 2
+fi
 if [[ "${1:-}" == "--remove" ]]; then
     systemctl --user disable --now todays-brief.timer 2>/dev/null || true
     for unit in "${UNITS[@]}"; do rm -f "$UNIT_DIR/$unit"; done
@@ -38,10 +43,30 @@ if ! command -v systemctl >/dev/null; then
     exit 1
 fi
 
+# Prefer the project virtualenv; otherwise use the active shell interpreter.
+if [[ -x "$ROOT/.venv/bin/python3" ]]; then
+    PYTHON="$ROOT/.venv/bin/python3"
+else
+    PYTHON="$(command -v python3)"
+fi
+"$PYTHON" -c 'import requests' || { echo "Install requirements.txt before scheduling." >&2; exit 1; }
 mkdir -p "$UNIT_DIR"
-for unit in "${UNITS[@]}"; do
-    cp "systemd/$unit" "$UNIT_DIR/$unit"
-done
+"$PYTHON" - "$ROOT" "$UNIT_DIR" "$PYTHON" <<'PY'
+from pathlib import Path
+import json
+import sys
+root, units, interpreter = map(Path, sys.argv[1:])
+# Percent introduces a systemd specifier, even inside quoted strings.
+def unit_value(value):
+    return json.dumps(str(value).replace('%', '%%'), ensure_ascii=False)
+source = (root / 'systemd/todays-brief.service').read_text()
+source = source.replace('WorkingDirectory=@PROJECT_ROOT@', 'WorkingDirectory=' + unit_value(root))
+source = source.replace('@PROJECT_ROOT@/deliver.sh', unit_value(root / 'deliver.sh'))
+source = source.replace('Environment="PATH=@PYTHON_BIN@:/usr/local/bin:/usr/bin:/bin"',
+                        'Environment=' + unit_value('PATH=' + str(interpreter.parent) + ':/usr/local/bin:/usr/bin:/bin'))
+(units / 'todays-brief.service').write_text(source)
+(units / 'todays-brief.timer').write_text((root / 'systemd/todays-brief.timer').read_text())
+PY
 
 systemctl --user daemon-reload
 systemctl --user enable --now todays-brief.timer
