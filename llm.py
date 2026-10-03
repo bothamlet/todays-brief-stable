@@ -109,14 +109,18 @@ def ask_json(
             continue
 
         try:
-            choices = response.json().get("choices") or []
+            body = response.json()
+            choices = body.get("choices") if isinstance(body, dict) else None
         except ValueError:
             continue
 
-        if not choices:
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
             continue
-
-        content = ((choices[0].get("message") or {}).get("content") or "").strip()
+        message = choices[0].get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
+            continue
+        content = content.strip()
         parsed = parse_json_object(content)
         if parsed is not None:
             return parsed

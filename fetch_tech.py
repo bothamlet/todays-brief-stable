@@ -54,17 +54,16 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-# Sibling modules. Python puts this script's own directory on sys.path; pyright
-# analyses each file standalone and cannot see them, hence the directives.
-from common import (  # pyright: ignore[reportMissingImports]
+from common import (
     dedupe_by_url,
     newest_first,
     parse_timestamp,
     save_json,
     utc_now,
 )
-from publishers import normalise  # pyright: ignore[reportMissingImports]
-from rss_feeds import backfill_images, fetch_many  # pyright: ignore[reportMissingImports]
+from publishers import normalise
+from rss_feeds import require_healthy_feeds
+from rss_feeds import backfill_images, fetch_many
 
 # --- Configuration -----------------------------------------------------------
 
@@ -449,6 +448,7 @@ def from_feeds() -> list[dict[str, Any]]:
     results = fetch_many(
         [(name, url) for name, url, _interest in DIRECT_FEEDS], workers=8
     )
+    require_healthy_feeds(results, "Tech")
     fallback_by_url = {url: interest for _name, url, interest in DIRECT_FEEDS}
 
     articles: list[dict[str, Any]] = []

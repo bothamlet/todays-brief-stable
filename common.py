@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import re
 import sys
+import os
+import tempfile
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -35,15 +37,32 @@ def load_json(path: Path) -> list[dict[str, Any]]:
         fail(f"could not read {path}: {exc}")
     if not isinstance(rows, list) or not rows:
         fail(f"{path} contains no items.")
+    if any(not isinstance(row, dict) for row in rows):
+        fail(f"{path} contains invalid story records.")
     return rows
 
 
 def save_json(payload: Any, path: Path) -> None:
     """Write JSON, creating the parent folder if needed."""
+    atomic_write(path, json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def atomic_write(path: Path, text: str) -> None:
+    """Replace a file only after its complete contents have been written."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    name = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=f".{path.name}.", delete=False) as handle:
+            name = handle.name
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(name, path)
+    finally:
+        if name and os.path.exists(name):
+            os.unlink(name)
+
 
 
 def first_existing(paths: Sequence[Path]) -> Path:

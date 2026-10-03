@@ -28,7 +28,7 @@ from typing import Any
 # Sibling modules in the same folder. Python puts the script's own directory on
 # sys.path automatically; pyright analyses each file standalone here and cannot
 # see its siblings, hence the directives.
-from common import (  # pyright: ignore[reportMissingImports]
+from common import (
     dedupe_by_url,
     fail,
     newest_first,
@@ -36,7 +36,8 @@ from common import (  # pyright: ignore[reportMissingImports]
     save_json,
     utc_now,
 )
-from rss_feeds import fetch_many  # pyright: ignore[reportMissingImports]
+from rss_feeds import require_healthy_feeds
+from rss_feeds import fetch_many
 
 # --- Configuration -----------------------------------------------------------
 
@@ -54,7 +55,7 @@ RSS_WORKERS = 12  # parallel feed fetches
 # surface stories this pipeline cannot frame across the political spectrum.
 #
 # Same reputability bar as the coverage roster — established newsrooms only. See
-# the note on RSS_OUTLETS in coverage_roster.py for what that excludes and why.
+# the note on RSS_OUTLETS in fetch_coverage.py for what that excludes and why.
 #
 # Every URL below was fetched live and confirmed to return items. Direct feeds
 # only: the Google News bridge used for Reuters and AP is excluded here, because
@@ -91,6 +92,7 @@ def gather(feeds: dict[str, str]) -> tuple[list[dict[str, Any]], list[str]]:
     """Fetch every feed once. Returns (items, names that came back empty)."""
     results = fetch_many(list(feeds.items()), workers=RSS_WORKERS)
 
+    require_healthy_feeds(results, "World discovery")
     items: list[dict[str, Any]] = []
     empty: list[str] = []
     for name, url in feeds.items():

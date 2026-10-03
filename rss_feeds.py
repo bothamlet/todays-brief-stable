@@ -30,6 +30,25 @@ USER_AGENT = "Mozilla/5.0 (compatible; news-pipeline/1.0)"
 MAX_DESCRIPTION_CHARS = 220
 
 
+class FeedItems(list[dict[str, Any]]):
+    """Items plus fetch status: a valid empty feed is different from an outage."""
+
+    def __init__(self, items=(), *, ok: bool = True):
+        super().__init__(items)
+        self.ok = ok
+
+
+def require_healthy_feeds(results: dict[str, list[dict[str, Any]]], label: str) -> None:
+    """At least half the requested feeds must return valid RSS/Atom documents."""
+    from common import fail
+
+    healthy = sum(getattr(items, "ok", True) for items in results.values())
+    if not results or healthy == 0 or healthy / len(results) < 0.5:
+        fail(f"{label}: only {healthy}/{len(results)} feeds succeeded; keeping the previous issue.")
+    if healthy < len(results):
+        print(f"WARNING: {label}: {len(results) - healthy}/{len(results)} feeds failed.")
+
+
 def _unescape(text: str) -> str:
     """Resolve HTML entities, including double-escaped ones.
 
@@ -239,11 +258,13 @@ def fetch_feed(
             url, headers={"User-Agent": USER_AGENT}, timeout=timeout
         )
         if response.status_code != 200:
-            return []
+            return FeedItems(ok=False)
         root = ET.fromstring(response.content)
     except (requests.RequestException, ET.ParseError):
-        return []
+        return FeedItems(ok=False)
 
+    if root.tag not in ("rss", "RDF", "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}RDF", f"{ATOM_NS}feed"):
+        return FeedItems(ok=False)
     nodes = root.findall(".//item") or root.findall(f".//{ATOM_NS}entry")
     out: list[dict[str, Any]] = []
 
@@ -297,7 +318,7 @@ def fetch_feed(
             }
         )
 
-    return out
+    return FeedItems(out)
 
 
 def fetch_many(

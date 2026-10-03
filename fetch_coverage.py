@@ -7,13 +7,13 @@ lean and attach it as `coverage: {left: [...], center: [...], right: [...]}`.
 
 The source is RSS: a fixed roster of two left, two centre and two right outlets,
 each read through several desk feeds and matched locally on keywords. No key, no
-quota, no rate limiting, no domain guessing, and no third-party index deciding
+quota, no API quota, no domain guessing, and no third-party index deciding
 what exists — which is also what makes the Guardian and the New York Times
 reachable at all.
 
 There used to be a second source. NewsAPI queried by keyword against
 domain-restricted searches, off by default, and it is gone: RSS found strictly
-more frames for every story tested, needs no key, and cannot be rate limited.
+more frames for every story tested, needs no key, and needs no API quota.
 What NewsAPI left behind was two hundred lines of machinery for a source nobody
 had switched on — request builders, a domain probe, a source index, three
 diagnostic subcommands, fifteen constants, and a degraded-run guard that existed
@@ -42,7 +42,7 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any
 
 try:
     import requests
@@ -52,43 +52,29 @@ except ImportError:
         "    pip install -r requirements.txt"
     )
 
-# Sibling modules. Python puts this script's own directory on sys.path; pyright
-# analyses each file standalone and cannot see them, hence the directives.
-from briefing import (  # pyright: ignore[reportMissingImports]
+from briefing import (
     assign_briefing_topics,
     briefing_candidates,
     dedupe_briefing_coverage,
     report_briefing,
     select_briefing,
 )
-from common import (  # pyright: ignore[reportMissingImports]
+from common import (
     dedupe_by_url,
-    fail as _fail,
+    fail,
     first_existing,
     load_json,
     save_json,
 )
-from llm import get_api_key  # pyright: ignore[reportMissingImports]
-from rss_feeds import fetch_many  # pyright: ignore[reportMissingImports]
-from textutil import (  # pyright: ignore[reportMissingImports]
+from llm import MODEL, ask_json, get_api_key
+from rss_feeds import require_healthy_feeds
+from rss_feeds import fetch_many
+from textutil import (
     STOPWORDS,
     significant_tokens,
     title_overlap,
 )
 
-
-def fail(message: str) -> NoReturn:
-    """Exit with an error message.
-
-    A local wrapper rather than a direct import, because pyright cannot see
-    through the suppressed sibling import: `common.fail`'s NoReturn is invisible
-    to it, so this function "returns None" and every `if bad: fail(...)` leaves
-    the code after it "possibly unbound" — 20-odd spurious errors. The trailing
-    raise is unreachable; it exists so the declared NoReturn is true to the type
-    checker.
-    """
-    _fail(message)
-    raise SystemExit(1)
 
 # --- Configuration -----------------------------------------------------------
 #
@@ -97,8 +83,7 @@ def fail(message: str) -> NoReturn:
 # three thresholds its domain probe used, and the fraction of failed queries that
 # meant a degraded run. All of it went with the source.
 
-DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
-DEEPSEEK_MODEL = os.environ.get("COVERAGE_MODEL", "deepseek-flash")
+DEEPSEEK_MODEL = os.environ.get("COVERAGE_MODEL") or MODEL
 
 # Pipeline order is: fetch_world -> cluster_stories -> classify_articles ->
 # track_stories -> here. So the TRACKED file is preferred: it is the classified
@@ -114,7 +99,7 @@ OUTPUT_PATH = Path("data/world_covered.json")
 LOOKBACK_HOURS = 48  # how far back to search for coverage
 REQUEST_TIMEOUT = 30.0  # seconds per call
 KEYWORD_MAX_TOKENS = 100  # the reply is a tiny JSON object
-MAX_QUERY_TERMS = 2  # NewsAPI ANDs bare terms, so keep the required set tiny
+MAX_QUERY_TERMS = 2  # distinctive entities for local coverage matching
 
 LEANS = ("left", "center", "right")
 
@@ -335,52 +320,15 @@ def deepseek_terms(
     )
     user = f"Headline: {title}\nSummary: {(description or '').strip() or '(none)'}"
 
-    payload = {
-        "model": DEEPSEEK_MODEL,
-        "max_tokens": KEYWORD_MAX_TOKENS,
-        # temperature 0 so the same story yields the same terms on every run. At
-        # the default the model returned ["Ben Shelton","US Open"] on one run and
-        # ["Ben Shelton","Alexander Zverev"] on the next, which made coverage
-        # counts — and therefore the left/centre/right balance — jitter daily.
-        "temperature": 0,
-        # Same lesson as classify_articles.py: reasoning tokens are billed
-        # against max_tokens and can consume the whole budget, yielding empty
-        # content. We only need a few words, so thinking is pure overhead.
-        "thinking": {"type": "disabled"},
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-    }
-
-    try:
-        response = session.post(
-            DEEPSEEK_URL,
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=REQUEST_TIMEOUT,
-        )
-        if response.status_code != 200:
-            return None
-        body = response.json()
-        choices = body.get("choices") or []
-        if not choices:
-            return None
-        text = ((choices[0].get("message") or {}).get("content") or "").strip()
-        if not text:
-            return None
-        start, end = text.find("{"), text.rfind("}")
-        if start == -1 or end == -1:
-            return None
-
-        raw = json.loads(text[start : end + 1]).get("terms", [])
-        if isinstance(raw, str):  # tolerate a bare string instead of a list
-            raw = [raw]
-        terms = [str(t).strip() for t in raw if str(t).strip()]
-        return terms[:MAX_QUERY_TERMS] or None
-    except (requests.RequestException, ValueError, AttributeError, TypeError):
+    parsed = ask_json(system, user, max_tokens=KEYWORD_MAX_TOKENS,
+                      model=DEEPSEEK_MODEL, api_key=api_key, session=session)
+    raw = parsed.get("terms", []) if parsed else []
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
         return None
+    terms = [str(term).strip() for term in raw if isinstance(term, str) and term.strip()]
+    return terms[:MAX_QUERY_TERMS] or None
 
 
 def format_term(term: str) -> str:
@@ -454,6 +402,7 @@ def fetch_rss_by_lean() -> dict[str, list[dict[str, Any]]]:
 
     # fetch_many keys its results by URL, so each maps back to its lean.
     by_url = fetch_many([(outlet, url) for _, outlet, url in jobs], workers=RSS_WORKERS)
+    require_healthy_feeds(by_url, "World coverage")
     for lean, _outlet, url in jobs:
         out[lean].extend(by_url.get(url, []))
 
@@ -581,38 +530,11 @@ def verify_same_story(
         "Which candidates cover that same specific story?"
     )
 
-    payload = {
-        "model": DEEPSEEK_MODEL,
-        "max_tokens": 200,
-        "temperature": 0,
-        "thinking": {"type": "disabled"},
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": COVERAGE_SAME_STORY_PROMPT},
-            {"role": "user", "content": user},
-        ],
-    }
-
-    try:
-        response = session.post(
-            DEEPSEEK_URL,
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=REQUEST_TIMEOUT,
-        )
-        if response.status_code != 200:
-            return everything
-        choices = response.json().get("choices") or []
-        if not choices:
-            return everything
-        text = ((choices[0].get("message") or {}).get("content") or "").strip()
-    except (requests.RequestException, ValueError, AttributeError, TypeError):
+    parsed = ask_json(COVERAGE_SAME_STORY_PROMPT, user, max_tokens=200,
+                      model=DEEPSEEK_MODEL, api_key=api_key, session=session)
+    if parsed is None:
         return everything
-
-    if not text:
-        return everything
-
-    indices = parse_indices(text, len(frames))
+    indices = parse_indices(json.dumps(parsed), len(frames))
     return everything if indices is None else indices
 
 
@@ -674,6 +596,8 @@ def run_pipeline() -> None:
 
     if not stories:
         print("No high-significance stories — writing input through unchanged.")
+        for rank, story in enumerate(select_briefing(articles)):
+            story["briefing_rank"] = rank
         save_json(articles, OUTPUT_PATH)
         print(f"Written to {OUTPUT_PATH}")
         return

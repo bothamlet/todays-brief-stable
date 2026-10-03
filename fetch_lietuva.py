@@ -51,23 +51,22 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-# Sibling modules. Python puts this script's own directory on sys.path; pyright
-# analyses each file standalone and cannot see them, hence the directives.
-from common import (  # pyright: ignore[reportMissingImports]
+from common import (
     dedupe_by_url,
     newest_first,
     parse_timestamp,
     save_json,
     utc_now,
 )
-from llm import ask_json  # pyright: ignore[reportMissingImports]
-from publishers import Allowlist, normalise  # pyright: ignore[reportMissingImports]
-from rss_feeds import (  # pyright: ignore[reportMissingImports]
+from llm import ask_json
+from publishers import Allowlist, normalise
+from rss_feeds import require_healthy_feeds
+from rss_feeds import (
     backfill_images,
     fetch_many,
     google_news_url,
 )
-from textutil import shared_words, significant_tokens  # pyright: ignore[reportMissingImports]
+from textutil import shared_words, significant_tokens
 
 # --- Configuration -----------------------------------------------------------
 
@@ -290,6 +289,8 @@ def collect() -> tuple[list[dict[str, Any]], list[str], int, int]:
     )
     direct = fetch_many(list(DIRECT_FEEDS))
     google = fetch_many(google_jobs, publisher_from_source=True)
+
+    require_healthy_feeds({**direct, **google}, "Lietuva")
 
     kept: list[dict[str, Any]] = []
     rejected: list[str] = []

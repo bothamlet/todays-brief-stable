@@ -30,33 +30,21 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any
 
-# Sibling modules. Python puts this script's own directory on sys.path; pyright
-# analyses each file standalone and cannot see them, hence the directives.
-from common import (  # pyright: ignore[reportMissingImports]
-    fail as _fail,
+from common import (
+    fail,
     load_json,
     save_json,
 )
-from rss_feeds import backfill_images  # pyright: ignore[reportMissingImports]
-from textutil import (  # pyright: ignore[reportMissingImports]
+from rss_feeds import backfill_images
+from textutil import (
     ordinal,
     shared_words,
     significant_tokens,
     word_frequencies,
 )
 
-
-def fail(message: str) -> NoReturn:
-    """Exit with an error message.
-
-    A local wrapper so pyright sees NoReturn — it cannot see through the
-    suppressed sibling import, which otherwise leaves every `if bad: fail(...)`
-    with "possibly unbound" code after it. The raise is unreachable.
-    """
-    _fail(message)
-    raise SystemExit(1)
 
 # --- Configuration -----------------------------------------------------------
 

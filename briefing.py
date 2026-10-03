@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from llm import ask_json  # pyright: ignore[reportMissingImports]
-from textutil import (  # pyright: ignore[reportMissingImports]
+from llm import ask_json
+from textutil import (
     normalise,
     topic_key,
 )
@@ -53,9 +53,11 @@ def significance_rank(story: dict[str, Any]) -> int:
 
 
 def briefing_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Stories eligible for the briefing: the page's category, with coverage."""
+    """Stories eligible for the briefing, including single-outlet quiet-day items."""
 
     def worth_showing(story: dict[str, Any]) -> bool:
+        if not story.get("title") or not story.get("url"):
+            return False
         coverage = story.get("coverage") or {}
         if not any(coverage.get(lean) for lean in LEANS):
             return False
@@ -78,6 +80,9 @@ def select_briefing(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     meant to prevent repetition saw three unrelated topics.
     """
     candidates = briefing_candidates(rows)
+    if not candidates:
+        candidates = [row for row in rows if row.get("title") and row.get("url")
+                      and (row.get("classification") or {}).get("category") == BRIEFING_CATEGORY]
 
     # Successive stable sorts, least significant key first: importance, then how
     # many leans the story can actually show, then breadth, then recency.
