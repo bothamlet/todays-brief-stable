@@ -4,6 +4,7 @@
  */
 (() => {
   const wrapper = document.getElementById("pagesWrapper");
+  const frame = wrapper.closest(".phone-frame");
   const dotsContainer = document.getElementById("pageDots");
   const pages = document.querySelectorAll(".page");
   const dots = dotsContainer.querySelectorAll(".dot");
@@ -15,10 +16,12 @@
   let dragOffset = 0;
   let isVerticalScroll = false;
   let directionDecided = false;
+  let startedAt = 0;
+  let suppressClickUntil = 0;
 
   const PAGE_WIDTH = () => pages[0].getBoundingClientRect().width;
-  const THRESHOLD = 50; // minimum px to trigger page change
-  const SNAP_DURATION = 500;
+  const THRESHOLD = 36;
+  const SNAP_DURATION = 280;
 
   // --- Core navigation ---
 
@@ -39,7 +42,7 @@
     const offset = -currentPage * PAGE_WIDTH();
     if (animate) {
       const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : SNAP_DURATION;
-      wrapper.style.transition = `transform ${duration}ms cubic-bezier(0.25, 0.1, 0.25, 1)`;
+      wrapper.style.transition = `transform ${duration}ms cubic-bezier(0.22, 0.61, 0.36, 1)`;
     } else {
       wrapper.style.transition = "none";
     }
@@ -69,8 +72,10 @@
 
   function onPointerDown(e) {
     if (e.touches && e.touches.length !== 1) return;
-    // Ignore touches on interactive elements
-    if (e.target.closest("button, a, input")) return;
+    // Touches may begin on headlines or controls; movement distinguishes a swipe
+    // from a tap. Keep mouse clicks on those elements working normally.
+    if (!e.touches && e.target.closest("button, a, input")) return;
+    if (e.target.closest("input, textarea, select, [contenteditable]")) return;
 
     isDragging = true;
     isVerticalScroll = false;
@@ -78,7 +83,8 @@
     startX = e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
     startY = e.type.startsWith("touch") ? e.touches[0].clientY : e.clientY;
     dragOffset = 0;
-    wrapper.style.transition = "none";
+    startedAt = performance.now();
+    suppressClickUntil = 0;
   }
 
   function onPointerMove(e) {
@@ -98,15 +104,21 @@
     const diffX = currentX - startX;
     const diffY = currentY - startY;
 
-    // Decide scroll direction on first significant movement
-    if (!directionDecided && (Math.abs(diffX) > 5 || Math.abs(diffY) > 5)) {
+    // Let small diagonal movements settle before choosing an axis. Until then,
+    // leave native scrolling and taps alone.
+    const x = Math.abs(diffX);
+    const y = Math.abs(diffY);
+    if (!directionDecided && Math.max(x, y) >= 10 &&
+        (x > y * 1.2 || y > x * 1.2 || Math.max(x, y) >= 20)) {
       directionDecided = true;
-      isVerticalScroll = Math.abs(diffY) > Math.abs(diffX);
+      isVerticalScroll = y >= x;
+      if (!isVerticalScroll) wrapper.style.transition = "none";
     }
 
-    if (isVerticalScroll) return; // let the page scroll vertically
+    if (!directionDecided || isVerticalScroll) return;
 
-    e.preventDefault(); // prevent vertical scroll while swiping horizontally
+    if (e.cancelable) e.preventDefault();
+    suppressClickUntil = performance.now() + 500;
 
     // Apply resistance at edges
     dragOffset = diffX;
@@ -127,9 +139,13 @@
 
     if (isVerticalScroll || !directionDecided) return;
 
-    if (dragOffset < -THRESHOLD && currentPage < pages.length - 1) {
+    suppressClickUntil = performance.now() + 500;
+    const distance = Math.abs(dragOffset);
+    const speed = distance / Math.max(performance.now() - startedAt, 1);
+    const shouldMove = distance >= THRESHOLD || (distance >= 18 && speed >= 0.4);
+    if (shouldMove && dragOffset < 0 && currentPage < pages.length - 1) {
       goToPage(currentPage + 1);
-    } else if (dragOffset > THRESHOLD && currentPage > 0) {
+    } else if (shouldMove && dragOffset > 0 && currentPage > 0) {
       goToPage(currentPage - 1);
     } else {
       goToPage(currentPage); // snap back
@@ -137,13 +153,20 @@
   }
 
   // Touch events
-  wrapper.addEventListener("touchstart", onPointerDown, { passive: true });
-  wrapper.addEventListener("touchmove", onPointerMove, { passive: false });
-  wrapper.addEventListener("touchend", onPointerUp);
-  wrapper.addEventListener("touchcancel", () => {
+  // Include the overlaid navigation area as well as the story content.
+  frame.addEventListener("touchstart", onPointerDown, { passive: true });
+  frame.addEventListener("touchmove", onPointerMove, { passive: false });
+  frame.addEventListener("touchend", onPointerUp);
+  frame.addEventListener("touchcancel", () => {
     isDragging = false;
     goToPage(currentPage);
   });
+  frame.addEventListener("click", (event) => {
+    if (performance.now() < suppressClickUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, true);
 
   // Mouse events (for desktop testing)
   wrapper.addEventListener("mousedown", onPointerDown);

@@ -105,6 +105,53 @@ class TestPhoneIssue(unittest.TestCase):
         self.assertLessEqual(frame['height'], 390)
         self.assertEqual(frame['width'], 844)
 
+    def swipe_target(self, selector, dx=-120, dy=5):
+        return self.page.locator(selector).first.evaluate('''(target, {dx, dy}) => {
+          const point = (x, y) => new Touch({identifier: 1, target, clientX: x, clientY: y});
+          const fire = (type, x, y) => {
+            const event = new TouchEvent(type, {bubbles: true, cancelable: true,
+              touches: type === 'touchend' ? [] : [point(x, y)]});
+            target.dispatchEvent(event);
+            return event.defaultPrevented;
+          };
+          fire('touchstart', 280, 300);
+          const prevented = fire('touchmove', 280 + dx, 300 + dy);
+          fire('touchend', 280 + dx, 300 + dy);
+          return prevented;
+        }''', {'dx': dx, 'dy': dy})
+
+    def test_swipes_start_on_headlines_buttons_and_navigation_overlay(self):
+        for selector in ['#worldStories .card-headline-link', '#worldStories .card-nav-btn', '#pageDots button']:
+            with self.subTest(selector=selector):
+                self.page.reload()
+                self.page.wait_for_selector('#worldStories .news-card')
+                self.assertTrue(self.swipe_target(selector))
+                self.assertEqual(self.page.locator('.page.in-view').get_attribute('data-category'), 'europe')
+
+    def test_swipe_suppresses_link_click_and_vertical_gesture_keeps_native_scroll(self):
+        self.assertFalse(self.swipe_target('#worldStories .card-headline-link', dx=6, dy=-100))
+        self.assertEqual(self.page.locator('.page.in-view').get_attribute('data-category'), 'world')
+        self.swipe_target('#worldStories .card-headline-link')
+        self.assertTrue(self.page.locator('#worldStories .card-headline-link').first.evaluate('''target => {
+          const click = new MouseEvent('click', {bubbles: true, cancelable: true});
+          target.dispatchEvent(click);
+          return click.defaultPrevented;
+        }'''))
+
+    def test_real_browser_swipe_on_headline_and_tap_on_button(self):
+        self.page.wait_for_timeout(300)
+        target = self.page.locator('#worldStories .card-headline-link').first.bounding_box()
+        x, y = target['x'] + target['width'] * .8, target['y'] + target['height'] / 2
+        session = self.context.new_cdp_session(self.page)
+        session.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y}]})
+        for offset in [15, 35, 60, 100]:
+            session.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': x - offset, 'y': y + 3}]})
+            self.page.wait_for_timeout(20)
+        session.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+        self.assertEqual(self.page.locator('.page.in-view').get_attribute('data-category'), 'europe')
+        self.page.get_by_role('button', name='World', exact=True).tap()
+        self.assertEqual(self.page.locator('.page.in-view').get_attribute('data-category'), 'world')
+
     def test_missing_data_settles_loading_labels(self):
         self.page.goto((Path(__file__).resolve().parent / 'index.html').as_uri())
         self.page.wait_for_selector('.page-empty')
