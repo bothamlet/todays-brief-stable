@@ -1,0 +1,2 @@
+-r requirements-browser.txt
+pyright==1.1.414

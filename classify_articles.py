@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-classify_articles.py — Step 2 of the daily news pipeline.
+classify_articles.py — Step 3 of the daily news pipeline.
 
 Reads data/world_raw.json, classifies each headline with DeepSeek, drops the
 noise, then writes a significance-sorted list to data/world_filtered.json.
@@ -24,11 +24,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Sibling modules. Python puts this script's own directory on sys.path; pyright
-# analyses each file standalone and cannot see them, hence the directives.
-from common import first_existing, load_json, save_json  # pyright: ignore[reportMissingImports]
-from llm import MODEL as DEFAULT_MODEL  # pyright: ignore[reportMissingImports]
-from llm import ask_json  # pyright: ignore[reportMissingImports]
+from common import first_existing, load_json, save_json
+from llm import MODEL as DEFAULT_MODEL
+from llm import ask_json
 
 # --- Configuration -----------------------------------------------------------
 

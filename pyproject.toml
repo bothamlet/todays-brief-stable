@@ -1,0 +1,8 @@
+[tool.pyright]
+include = ["*.py"]
+exclude = ["test_*.py"]
+extraPaths = ["."]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"

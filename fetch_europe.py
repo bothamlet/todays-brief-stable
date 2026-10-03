@@ -39,15 +39,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-# Sibling modules. Python puts this script's own directory on sys.path; pyright
-# analyses each file standalone and cannot see them, hence the directives.
-from common import (  # pyright: ignore[reportMissingImports]
+from common import (
     load_json,
     newest_first,
     parse_timestamp,
     save_json,
 )
-from publishers import normalise  # pyright: ignore[reportMissingImports]
+from publishers import normalise
 
 # --- Configuration -----------------------------------------------------------
 

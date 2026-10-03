@@ -35,11 +35,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# Sibling modules. Python puts this script's own directory on sys.path; pyright
-# analyses each file standalone and cannot see them, hence the directives.
-from common import load_json, save_json  # pyright: ignore[reportMissingImports]
-from llm import MODEL as DEFAULT_MODEL  # pyright: ignore[reportMissingImports]
-from llm import ask_json  # pyright: ignore[reportMissingImports]
+from common import load_json, save_json
+from llm import MODEL as DEFAULT_MODEL
+from llm import ask_json
 
 # --- Configuration -----------------------------------------------------------
 

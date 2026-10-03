@@ -46,10 +46,8 @@ from typing import Any
 
 import json
 
-# Sibling modules. Python puts its own directory on sys.path; pyright analyses each
-# file standalone and cannot see them, hence the directives.
-from common import save_json  # pyright: ignore[reportMissingImports]
-from rss_feeds import USER_AGENT  # pyright: ignore[reportMissingImports]
+from common import save_json
+from rss_feeds import USER_AGENT
 
 import requests
 

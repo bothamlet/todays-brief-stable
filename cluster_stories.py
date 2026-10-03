@@ -31,10 +31,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# Sibling modules. Python puts this script's own directory on sys.path; pyright
-# analyses each file standalone and cannot see them, hence the directives.
-from common import load_json, parse_timestamp, save_json  # pyright: ignore[reportMissingImports]
-from textutil import clean_title, significant_tokens  # pyright: ignore[reportMissingImports]
+from common import load_json, parse_timestamp, save_json
+from textutil import clean_title, significant_tokens
 
 # --- Configuration -----------------------------------------------------------
 

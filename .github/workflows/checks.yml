@@ -1,0 +1,26 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install development dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements-dev.txt
+          .venv/bin/playwright install --with-deps chromium
+      - name: Run tests and source checks
+        env:
+          REQUIRE_BROWSER_TESTS: '1'
+        run: |
+          .venv/bin/python -m unittest discover -v
+          .venv/bin/pyright
+          node --check app.js
+          node --check render.js
+          bash -n run.sh deliver.sh install-timer.sh
