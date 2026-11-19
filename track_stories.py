@@ -1,33 +1,13 @@
 #!/usr/bin/env python3
-"""
-track_stories.py — Step 4 of the daily news pipeline: memory.
-
-Keeps a SQLite record of every story the pipeline has seen, so the briefing can
-say whether something is new or has been running for days.
-
-Every earlier step is stateless. The clusterer merges one day's articles; the
-classifier judges one day's stories. Neither can tell a fresh event from the
-fourth day of an ongoing one, because neither has ever seen a previous run. That
-is the whole reason a "DEVELOPING — 3RD UPDATE" line could not be built before.
-
-Reads  data/world_filtered.json
-Writes data/world_tracked.json   (input stories, each with a `history` block)
-       data/briefing.db          (created on first run)
-
-Ordinal counting is by DISTINCT DAY, not by run: re-running the pipeline three
-times in one afternoon says "1st day", not "3rd update". Sightings are keyed on
-(story_id, seen_day) so repeats are simply ignored.
-
-Usage:
-    python track_stories.py            # record and annotate
-    python track_stories.py --history  # also print what the store remembers
-"""
+"""Record daily story sightings in SQLite and annotate the current edition."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
 import sys
+from collections import Counter
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -38,32 +18,14 @@ from common import (
     save_json,
 )
 from rss_feeds import backfill_images
-from textutil import (
-    ordinal,
-    shared_words,
-    significant_tokens,
-    word_frequencies,
-)
-
-
-# --- Configuration -----------------------------------------------------------
+from textutil import ordinal, significant_tokens
 
 INPUT_PATH = Path("data/world_filtered.json")
 OUTPUT_PATH = Path("data/world_tracked.json")
 DB_PATH = Path("data/briefing.db")
-
-# Sort key for picking which stories are worth a page fetch for their image.
 SIGNIFICANCE_RANK = {"high": 0, "medium": 1, "low": 2}
-
-# How many stories to spend that fetch on. The wired pages show five per category
-# across four categories, so this covers them with room to spare.
 IMAGE_BACKFILL_LIMIT = 30
-
-LOOKBACK_DAYS = 21  # how far back to hunt for the same story
-# The overlap test itself lives in match_existing: three shared words of any kind,
-# or two including one that is rare across the store. A flat threshold is not
-# enough, because "dead" and "attack" appear in half the store while "ferry" and
-# "indonesia" identify one story.
+LOOKBACK_DAYS = 21
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -98,9 +60,6 @@ CREATE INDEX IF NOT EXISTS idx_stories_last_seen ON stories(last_seen);
 """
 
 
-# --- Helpers -----------------------------------------------------------------
-
-
 def story_urls(story: dict[str, Any]) -> set[str]:
     """Every URL associated with a story: its lead article and its coverage."""
     urls: set[str] = set()
@@ -115,18 +74,10 @@ def story_urls(story: dict[str, Any]) -> set[str]:
 
 
 def as_int(value: Any, default: int = 0) -> int:
-    """Coerce a sqlite value to int without raising.
-
-    lastrowid is None on a no-op insert and sqlite column values are untyped, so
-    a bare int() here is a conversion that can fail on data we do not control.
-    """
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-# --- Store -------------------------------------------------------------------
 
 
 def connect() -> sqlite3.Connection:
@@ -148,52 +99,72 @@ def recent_stories(conn: sqlite3.Connection, cutoff: str) -> list[sqlite3.Row]:
     )
 
 
-def match_existing(
-    conn: sqlite3.Connection,
-    stored: list[sqlite3.Row],
-    title: str,
-    tokens: set[str],
-    urls: set[str],
-    frequencies: dict[str, int],
-) -> sqlite3.Row | None:
-    """The stored story this one continues, if any.
+def saved_urls(row: sqlite3.Row) -> set[str]:
+    try:
+        return set(json.loads(row["urls"] or "[]"))
+    except (TypeError, ValueError):
+        return set()
 
-    A shared article URL is decisive — the same link resurfacing means the same
-    running story. Otherwise title overlap decides, weighted by rarity: "ferry"
-    and "indonesia" are worth far more than "dead" or "attack", which appear in
-    half the store and would otherwise merge unrelated conflicts.
 
-    Deliberately conservative. Missing that a story is developing is a cosmetic
-    loss; claiming a fresh story is on its third update is a false statement.
-    """
-    for row in stored:
-        try:
-            known = set(json.loads(row["urls"] or "[]"))
-        except json.JSONDecodeError:
-            known = set()
-        if urls & known:
-            return row
+def unambiguous_matches(candidates: Iterable[tuple[float, int, int]]) -> dict[int, int]:
+    """Keep only mutual best matches; a tie on either side is inconclusive."""
+    by_current: dict[int, tuple[float, int | None]] = {}
+    by_previous: dict[int, tuple[float, int | None]] = {}
+    for score, current, previous in sorted(candidates, reverse=True):
+        for choices, key, match in (
+            (by_current, current, previous), (by_previous, previous, current)
+        ):
+            if key not in choices:
+                choices[key] = (score, match)
+            elif choices[key][0] == score:
+                choices[key] = (score, None)
+    return {
+        current: previous for current, (_, previous) in by_current.items()
+        if previous is not None and by_previous[previous][1] == current
+    }
 
-    if not stored:
-        return None
 
-    # A word in more than a quarter of stored stories carries little identity.
-    rare_ceiling = max(1, len(stored) // 4)
-
-    best: sqlite3.Row | None = None
-    best_score = 0
-    for row in stored:
-        common = shared_words(tokens, significant_tokens(str(row["best_title"])))
-        if not common:
+def match_edition(
+    titles: list[str], urls: list[set[str]], stored: list[sqlite3.Row]
+) -> dict[int, int]:
+    current_tokens = [significant_tokens(title) for title in titles]
+    previous_tokens = [significant_tokens(row["best_title"]) for row in stored]
+    previous_urls = [saved_urls(row) for row in stored]
+    exact: list[tuple[int, int, int]] = []
+    for current, (tokens, links) in enumerate(zip(current_tokens, urls)):
+        if not links:
             continue
-        rare = {w for w in common if frequencies.get(w, 0) <= rare_ceiling}
-        # Three shared words of any kind, or two including a distinctive one.
-        if not (len(common) >= 3 or (len(common) >= 2 and rare)):
+        for previous, known in enumerate(previous_urls):
+            if shared := links & known:
+                # An unchanged headline only breaks ties between equal link counts.
+                same_title = len(tokens) >= 3 and tokens == previous_tokens[previous]
+                exact.append((2 * len(shared) + same_title, current, previous))
+    matches = unambiguous_matches(exact)
+
+    # Even an ambiguous URL match outweighs a similar headline.
+    linked_current = {current for _, current, _ in exact}
+    linked_previous = {previous for _, _, previous in exact}
+    frequencies = Counter(word for tokens in previous_tokens for word in tokens)
+    rare_ceiling = max(1, len(stored) // 20)
+
+    # shortcut: lexical evidence misses rewritten headlines; revisit if misses dominate.
+    fuzzy: list[tuple[float, int, int]] = []
+    for current, tokens in enumerate(current_tokens):
+        if current in linked_current:
             continue
-        score = len(common) + len(rare)
-        if score > best_score:
-            best, best_score = row, score
-    return best
+        for previous, known in enumerate(previous_tokens):
+            if previous in linked_previous:
+                continue
+            shared = tokens & known
+            if len(shared) < 3:
+                continue
+            similarity = len(shared) / len(tokens | known)
+            if similarity >= 0.6 and any(
+                len(word) >= 5 and frequencies[word] <= rare_ceiling for word in shared
+            ):
+                fuzzy.append((similarity, current, previous))
+    matches.update(unambiguous_matches(fuzzy))
+    return matches
 
 
 def open_run(conn: sqlite3.Connection, now: datetime, day: str) -> int:
@@ -204,36 +175,21 @@ def open_run(conn: sqlite3.Connection, now: datetime, day: str) -> int:
     return as_int(cursor.lastrowid)
 
 
-# --- Tracking ----------------------------------------------------------------
-
-
 def track(
     conn: sqlite3.Connection, stories: list[dict[str, Any]], now: datetime, day: str
 ) -> dict[str, Any]:
-    """Match every story against the store, record the sighting, annotate it.
-
-    Matching compares against PREVIOUS runs only. Stories created earlier in this
-    same run are already distinct — separating them is the clusterer's job — and
-    matching them here merged 62 of 180 stories into each other on the very first
-    run, against an empty database.
-    """
+    """Match against prior runs, then record each distinct daily sighting."""
     cutoff = (now - timedelta(days=LOOKBACK_DAYS)).isoformat()
     stored = recent_stories(conn, cutoff)
-    frequencies = word_frequencies(str(r["best_title"]) for r in stored)
+    titles = [str(story.get("title") or "").strip() for story in stories]
+    links = [story_urls(story) for story in stories]
+    matches = match_edition(titles, links, stored)
     run_id = open_run(conn, now, day)
 
-    created_this_run: set[int] = set()
-    fresh = 0
-    continuing = 0
-
-    for story in stories:
-        title = str(story.get("title") or "").strip()
-        tokens = significant_tokens(title)
-        urls = story_urls(story)
+    for current, (story, title, urls) in enumerate(zip(stories, titles, links)):
         classification = story.get("classification") or {}
-
-        history_rows = [r for r in stored if as_int(r["id"]) not in created_this_run]
-        row = match_existing(conn, history_rows, title, tokens, urls, frequencies)
+        previous = matches.get(current)
+        row = stored[previous] if previous is not None else None
 
         if row is None:
             cursor = conn.execute(
@@ -253,19 +209,9 @@ def track(
                 ),
             )
             story_id = as_int(cursor.lastrowid)
-            created_this_run.add(story_id)
-            stored.append(
-                conn.execute("SELECT * FROM stories WHERE id = ?", (story_id,)).fetchone()
-            )
-            fresh += 1
         else:
             story_id = as_int(row["id"])
-            # Keep the newest headline and a union of URLs, so tomorrow's match
-            # can still find this story once today's links age out.
-            try:
-                known = set(json.loads(row["urls"] or "[]"))
-            except json.JSONDecodeError:
-                known = set()
+            known = saved_urls(row)
             conn.execute(
                 """
                 UPDATE stories
@@ -283,9 +229,7 @@ def track(
                     story_id,
                 ),
             )
-            continuing += 1
 
-        # Keyed on the day, so a second run today is ignored rather than counted.
         conn.execute(
             """
             INSERT OR IGNORE INTO sightings
@@ -313,7 +257,6 @@ def track(
                 "SELECT first_seen FROM stories WHERE id = ?", (story_id,)
             ).fetchone()["first_seen"]
         )
-        first_day = first_seen[:10]
         story["history"] = {
             "days_running": days,
             "first_seen": first_seen,
@@ -323,18 +266,7 @@ def track(
         }
 
     conn.commit()
-    return {"fresh": fresh, "continuing": continuing, "run_id": run_id}
-
-
-# --- Output ------------------------------------------------------------------
-
-
-def save(stories: list[dict[str, Any]]) -> None:
-    """Write the annotated story list, creating data/ if needed."""
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(
-        json.dumps(stories, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    return {"fresh": len(stories) - len(matches), "continuing": len(matches), "run_id": run_id}
 
 
 def print_history(conn: sqlite3.Connection) -> None:
@@ -364,9 +296,6 @@ def print_history(conn: sqlite3.Connection) -> None:
         )
 
 
-# --- Entry point -------------------------------------------------------------
-
-
 def main() -> None:
     stories = load_json(INPUT_PATH)
 
@@ -378,10 +307,6 @@ def main() -> None:
     try:
         result = track(conn, stories, now, day)
 
-        # The category pages show the most significant stories in each category
-        # first, so those are the ones worth spending a page fetch on. The
-        # pipeline collects far more articles than any page will ever display, and
-        # this is one request per story. Best-effort: see backfill_images.
         ranked = sorted(
             stories,
             key=lambda s: SIGNIFICANCE_RANK.get(
