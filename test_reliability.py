@@ -16,9 +16,25 @@ import fetch_coverage
 import fetch_sports
 import fetch_lietuva
 import fetch_tech
+import llm
 import rss_feeds
 
 ROOT = Path(__file__).resolve().parent
+
+class TestCredentials(unittest.TestCase):
+    def test_missing_key_does_not_send_a_request(self):
+        session = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / 'credentials.json'
+            fixture.write_text(json.dumps({'deepseek': {'key': 'unused-test-key'}}))
+            with patch.dict(os.environ, {}, clear=True), patch.object(llm, 'AUTH_FALLBACK', fixture, create=True):
+                self.assertIsNone(llm.ask_json('system', 'prompt', session=session))
+        session.post.assert_not_called()
+
+    def test_reads_and_trims_explicit_key(self):
+        with patch.dict(os.environ, {'DEEPSEEK_API_KEY': '  configured-test-key  '}):
+            self.assertEqual(llm.get_api_key(), 'configured-test-key')
+
 
 class TestFeedHealth(unittest.TestCase):
     def test_successful_empty_feed_is_not_an_outage(self):
