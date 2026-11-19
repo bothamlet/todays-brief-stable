@@ -8,8 +8,6 @@ outlets, and keeps the briefing readable offline.
 
 ## Try it offline
 
-<img src="docs/sample-phone.webp" width="230" align="right" alt="World section of the sample issue, showing the outlet framing controls">
-
 No account or API key needed. The demo uses fictional stories and bundled
 illustrations.
 
@@ -22,8 +20,6 @@ python3 demo.py
 
 Open `_site/demo.html` in a browser. On a phone, use the browser rather than
 relying on Telegram's attachment preview.
-
-<br clear="right">
 
 ## How it works
 
