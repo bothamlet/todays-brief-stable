@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
-"""
-fetch_world.py — Step 1 of the daily news pipeline: discovery.
-
-Reads today's World / international headlines from a roster of outlet RSS feeds
-and writes them to data/world_raw.json.
-
-This replaced a NewsAPI-based version. RSS needs no API key, has no quota, cannot
-be rate limited, and — unlike an aggregator's index — cannot silently decide an
-outlet does not exist. The NewsAPI version returned 0 articles for the Guardian
-and the New York Times on every single run.
-
-Feeds are fetched concurrently and filtered to the last LOOKBACK_HOURS. Only
-exact duplicates are dropped here; merging the same story as reported by
-different outlets is cluster_stories.py's job.
-
-Usage:
-    python fetch_world.py
-"""
+"""Discover world news from RSS."""
 
 from __future__ import annotations
 
@@ -25,9 +8,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-# Sibling modules in the same folder. Python puts the script's own directory on
-# sys.path automatically; pyright analyses each file standalone here and cannot
-# see its siblings, hence the directives.
 from common import (
     dedupe_by_url,
     fail,
@@ -39,7 +19,6 @@ from common import (
 from rss_feeds import require_healthy_feeds
 from rss_feeds import fetch_many
 
-# --- Configuration -----------------------------------------------------------
 
 OUTPUT_PATH = Path("data/world_raw.json")
 
@@ -47,20 +26,7 @@ LOOKBACK_HOURS = 24  # drop items older than this
 MAX_ARTICLES = 300  # safety valve only; clustering does the real reduction
 RSS_WORKERS = 12  # parallel feed fetches
 
-# ---------------------------------------------------------------------------
-# DISCOVERY FEEDS — deliberately wider than the coverage roster.
-#
-# Discovery's job is to find what happened, so it casts a broader net than the
-# per-lean covering set. World-facing desks only: a sport or business feed would
-# surface stories this pipeline cannot frame across the political spectrum.
-#
-# Same reputability bar as the coverage roster — established newsrooms only. See
-# the note on RSS_OUTLETS in fetch_coverage.py for what that excludes and why.
-#
-# Every URL below was fetched live and confirmed to return items. Direct feeds
-# only: the Google News bridge used for Reuters and AP is excluded here, because
-# its links are redirects and a discovered story's URL becomes the headline link.
-# ---------------------------------------------------------------------------
+# Publisher-specific searches cover outlets without usable feeds.
 DISCOVERY_FEEDS: dict[str, str] = {
     # left
     "The New York Times": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
@@ -85,7 +51,6 @@ DISCOVERY_FEEDS: dict[str, str] = {
 }
 
 
-# --- Steps -------------------------------------------------------------------
 
 
 def gather(feeds: dict[str, str]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -122,7 +87,6 @@ def summarise(rows: list[dict[str, Any]]) -> str:
     return ", ".join(f"{name} {n}" for name, n in sorted(counts.items()))
 
 
-# --- Entry point -------------------------------------------------------------
 
 
 def main() -> None:

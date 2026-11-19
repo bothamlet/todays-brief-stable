@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""
-briefing.py — deciding which covered stories make the page, and in what order.
-
-Extracted from fetch_coverage.py, which had grown to 1,648 lines and 40 functions
-doing feed fetching, keyword extraction, coverage matching, topic grouping,
-briefing selection and de-duplication all at once.
-
-The ordering lives here, once, and is written onto each story as `briefing_rank`.
-render.js and write_desk.py read that field rather than re-deriving the rule —
-they used to implement it separately in two languages, and when the two drifted
-the desk line began opening with a story that never reached the page.
-"""
+"""Rank stories for a varied briefing."""
 
 from __future__ import annotations
 
@@ -27,21 +16,11 @@ LEANS = ("left", "center", "right")
 BRIEFING_SIZE = 10  # stories that receive a briefing_rank
 BRIEFING_CATEGORY = "World"  # what the World page draws from
 MAX_PER_TOPIC = 1  # slots one ongoing event may occupy
-# Slots one region may occupy. The topic cap alone left four of the top five on
-# the Middle East, because "yemen conflict" and "us-iran conflict" are separate
-# topics that are the same region — so Sweden, with three good frames, was
-# pushed off the page by recency.
 MAX_PER_REGION = 2
 
 
 def lean_coverage_count(story: dict[str, Any]) -> int:
-    """How many of the three leans this story has any coverage from.
-
-    The card's whole purpose is flipping between left, centre and right, so a
-    story covered by only one side cannot demonstrate it. With the reputable
-    roster only about three stories a day have all three, which makes this a
-    strong signal rather than a tiebreak.
-    """
+    """How many of the three leans this story has any coverage from."""
     coverage = story.get("coverage") or {}
     return sum(1 for lean in LEANS if coverage.get(lean))
 
@@ -68,24 +47,13 @@ def briefing_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def select_briefing(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Order the stories worth showing, keeping topics and regions varied.
-
-    Importance decides the order; two caps stop one kind of event — or one part
-    of the world — taking the lot.
-
-    Topics come from assign_briefing_topics, which sees every candidate in one
-    call. The per-story classifier cannot do this: labelling headlines in
-    isolation, it returned "indonesian ship sinking", "vanuatu ferry sinking"
-    and "philippines ferry fire" for three separate ferry disasters, so a cap
-    meant to prevent repetition saw three unrelated topics.
-    """
+    """Order the stories worth showing, keeping topics and regions varied."""
     candidates = briefing_candidates(rows)
     if not candidates:
         candidates = [row for row in rows if row.get("title") and row.get("url")
                       and (row.get("classification") or {}).get("category") == BRIEFING_CATEGORY]
 
-    # Successive stable sorts, least significant key first: importance, then how
-    # many leans the story can actually show, then breadth, then recency.
+    # Stable sorts apply the highest-priority key last.
     candidates.sort(key=lambda r: str(r.get("publishedAt") or ""), reverse=True)
     candidates.sort(key=lambda r: r.get("outlet_count") or 0, reverse=True)
     candidates.sort(key=lean_coverage_count, reverse=True)
@@ -115,9 +83,7 @@ def select_briefing(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if len(picked) >= BRIEFING_SIZE:
             break
 
-    # Top up from the deferred pile, but only where a cap allows it. Filling
-    # blindly put the capped stories straight back in, so the briefing reported
-    # "none over the cap: False" while claiming to enforce one.
+    # Deferred stories still have to satisfy the caps.
     if len(picked) < BRIEFING_SIZE:
         for story in deferred:
             if len(picked) >= BRIEFING_SIZE:
@@ -177,16 +143,7 @@ def report_briefing(briefing: list[dict[str, Any]]) -> None:
 
 
 def dedupe_briefing_coverage(briefing: list[dict[str, Any]]) -> None:
-    """Stop one article opening two different cards.
-
-    The Guardian's "Houthis claim attack on Saudi base" legitimately matches both
-    the Yemen story and the Saudi pipeline story, so two adjacent cards opened on
-    the identical headline and read as duplicates. Earlier (more important)
-    stories keep the article; later ones lose it.
-
-    A story is never stripped to nothing — if dropping every repeat would empty
-    it, the first repeat is kept rather than leaving a blank card.
-    """
+    """Stop one article opening two different cards."""
     used: set[str] = set()
 
     for story in briefing:
@@ -245,11 +202,7 @@ Reply with a single json object and nothing else:
 
 
 def assign_briefing_topics(stories: list[dict[str, Any]]) -> None:
-    """Give every candidate a consistent topic, using one call that sees them all.
-
-    Writes `briefing_topic` on each story, leaving the per-story label untouched.
-    Never raises: on any failure the existing topic is reused.
-    """
+    """Give every candidate a consistent topic, using one call that sees them all."""
     for story in stories:
         story["briefing_topic"] = topic_key(
             str((story.get("classification") or {}).get("topic") or "")
@@ -271,10 +224,7 @@ def assign_briefing_topics(stories: list[dict[str, Any]]) -> None:
     if not isinstance(returned, list):
         return
 
-    # Match on the echoed headline, not on position. The model does not reliably
-    # return its entries in the order they were given: matching by index once put
-    # "russia-ukraine war" on a Philippines ferry story and "iran-saudi war" on a
-    # Kyiv train story, while every individual label was correct.
+    # The model may reorder responses, so match on the echoed headline.
     by_headline: list[tuple[str, str]] = []
     for entry in returned:
         if not isinstance(entry, dict):

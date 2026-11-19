@@ -1,38 +1,5 @@
 #!/usr/bin/env python3
-"""
-bundle.py — fold the whole paper into one file that opens from anywhere.
-
-The page is served from a web server: five files it loads and seven it fetches.
-That is fine on a server and useless as an attachment. A phone opening a file
-from a chat has no origin to fetch against — every browser refuses `fetch()` on a
-file:// URL — so a copy of this folder on a phone opens to a masthead with no news
-under it. Nothing is broken; there is simply nothing to fetch from.
-
-So this writes a single `paper.html` with everything inside it: the stylesheet,
-the two scripts, all seven data files, and the fonts and available photos. It opens from
-Telegram or a download folder. Text and embedded photos work offline; photos
-that cannot be embedded keep their original URLs so they can load when online.
-
-Three things are not as easy as concatenation:
-
-  The data has to be embedded, not fetched. render.js reads window.__BRIEF__ when
-  it exists and falls back to fetch when it does not, which is why the same
-  script still works on the hosted copy. Nothing here edits the rendering.
-
-  The fonts have to come with it. The masthead is Fraunces and the body is Inter;
-  without them an offline copy falls back to the system serif and stops looking
-  like the paper it is. Only the latin and latin-ext subsets are kept — latin-ext
-  because Lithuanian is not decoration here, it is a whole page, and its
-  diacritics (ą č ę ė į š ų ū ž) live there and nowhere else.
-
-  `</script>` inside embedded content ends the script tag early. Both the JSON and
-  the JavaScript are escaped for it, because the failure is a page that renders
-  half a newspaper and stops — or, at the top of the file, no page at all.
-
-Usage:
-    python3 bundle.py                     # writes _site/paper.html
-    python3 bundle.py /tmp/paper.html
-"""
+"""Package an issue as standalone HTML."""
 
 from __future__ import annotations
 
@@ -52,27 +19,13 @@ import requests
 INDEX = Path("index.html")
 DEFAULT_OUTPUT = Path("_site/paper.html")
 
-# Latin and latin-ext only. Google's stylesheet carries Cyrillic, Greek and
-# Vietnamese blocks for each weight as well, and none of them are ever drawn.
+# Embed the Latin subsets used by the briefing.
 KEEP_SUBSETS = ("latin", "latin-ext")
 
-# Only these hosts, for the font files named inside the stylesheet. The URLs come
-# from a document this script downloaded, and a script that fetches whatever URL
-# a downloaded document names is one that will one day fetch something it was
-# never meant to — the shape the linters call SSRF. The stylesheet is Google's and
-# the files are Google's; nothing else has any business being requested here.
+# Allowlist font hosts because stylesheet links are remote input.
 FONT_HOSTS = ("fonts.gstatic.com", "fonts.googleapis.com")
 
-# A browser user agent, for Google Fonts only — deliberately not rss_feeds'
-# USER_AGENT, which is the right thing to send a newsroom and the wrong thing to
-# send this.
-#
-# Google serves the stylesheet by capability. Asked as "news-pipeline/1.0" it
-# answers with 2.5KB of truetype and no subset comments at all, so there is
-# nothing to split on and nothing to inline. Asked as Chrome it answers with
-# 19KB, fifty @font-face blocks, the /* latin */ comments to filter by, and the
-# same faces as woff2 — a quarter of the weight, and the only version that can be
-# subset at all.
+# Request the browser stylesheet to receive WOFF2 instead of TrueType.
 BROWSER_UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
@@ -82,13 +35,7 @@ TIMEOUT = 20.0
 
 
 def local_asset(name: str) -> Path | None:
-    """A project-relative file named by a tag in index.html, or None.
-
-    The names come from our own markup, so this is not a boundary being defended.
-    It is the shape of the thing: a bundler that reads a path out of a file and
-    opens it should decline the one that leaves the directory, because the day the
-    input is not ours it will not be obvious that it used to be.
-    """
+    """Resolve only project-relative assets, rejecting paths outside the checkout."""
     if not name or name.startswith(("/", "http:", "https:", "//")):
         return None
     path = Path(name)
@@ -102,41 +49,24 @@ def font_url(url: str) -> bool:
     return url.startswith("https://") and url.split("/")[2] in FONT_HOSTS
 
 
-# --- Inlining ----------------------------------------------------------------
 
 
 def escape_script(text: str) -> str:
-    """Make text safe to sit inside a <script> element.
-
-    An HTML parser ends a script block at the first `</script`, wherever it
-    appears — inside a string, inside a comment, inside JSON. A news headline
-    containing that sequence would truncate the page there.
-    """
+    """Prevent script text from closing the enclosing HTML element."""
     return text.replace("</script", "<\\/script")
 
 
 def escape_json(payload: object) -> str:
-    """JSON safe to sit inside a <script> element.
-
-    `json.dumps` already escapes control characters; the only sequence that can
-    still end the element early is the literal `<`, so it is written as the
-    equivalent unicode escape. `\\u003c` parses back to `<`, so nothing downstream
-    can tell the difference.
-    """
+    """Escape JSON before embedding it in an HTML script element."""
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return text.replace("<", "\\u003c")
 
 
 def data_urls() -> list[str]:
-    """Every data file render.js declares, read from render.js itself.
-
-    Derived rather than listed so every wired section must have an input. A
-    missing file fails packaging instead of sending an incomplete fresh issue.
-    """
+    """Every data file render.js declares, read from render.js itself."""
     source = Path("render.js").read_text(encoding="utf-8")
     names = re.findall(r'\w+_URL = "([^"]+)"', source)
-    # Only the ones that resolve inside the project. Same reasoning as
-    # local_asset: these are ours, and the refusal should not depend on that.
+    # Reject asset paths outside the project root.
     return [name for name in names if name.startswith("data/") and ".." not in Path(name).parts]
 
 
@@ -300,13 +230,7 @@ def inline_images(payload: dict[str, object], *, offline: bool = False) -> dict[
 
 
 def embed_data(html: str, *, offline: bool = False) -> tuple[str, int, int]:
-    """Insert the data files as window.__BRIEF__, just before the scripts.
-
-    Placed before them rather than after because render.js reads it at load; a
-    later script tag would run second and the loader would look in an object that
-    does not exist yet, find nothing, and fall through to a fetch that cannot
-    work.
-    """
+    """Insert the data files as window.__BRIEF__, just before the scripts."""
     payload: dict[str, object] = {}
     bytes_in = 0
     for url in data_urls():
@@ -322,8 +246,7 @@ def embed_data(html: str, *, offline: bool = False) -> tuple[str, int, int]:
     if not payload or "data/world_covered.json" not in payload:
         raise SystemExit("bundle: no issue data; run the pipeline or use demo.py first")
 
-    # The delivered copy only needs ranked World stories and the Other category.
-    # The pipeline's full intermediate roster stays on disk for later stages.
+    # Keep only the World and Other payloads needed by the bundle.
     world = payload["data/world_covered.json"]
     if not isinstance(world, list):
         raise SystemExit("bundle: World data must be a list of stories")
@@ -355,15 +278,10 @@ def embed_data(html: str, *, offline: bool = False) -> tuple[str, int, int]:
     return html, len(payload), bytes_in
 
 
-# --- Fonts -------------------------------------------------------------------
 
 
 def stylesheet_url() -> str | None:
-    """The Google Fonts URL from index.html, if it is Google's at all.
-
-    Checked rather than taken on trust, for the same reason the font files are:
-    the URL is regex-matched out of a file and handed to requests.get.
-    """
+    """The Google Fonts URL from index.html, if it is Google's at all."""
     source = INDEX.read_text(encoding="utf-8")
     match = re.search(r'<link href="(https://fonts\.googleapis\.com/[^"]+)"', source)
     if not match:
@@ -380,8 +298,6 @@ def fonts_css() -> str | None:
     try:
         response = requests.get(
             url,
-            # See BROWSER_UA. Without one of these the response is truetype and
-            # carries no subset comments, so there is nothing here to inline.
             headers={"User-Agent": BROWSER_UA},
             timeout=TIMEOUT,
         )
@@ -391,8 +307,7 @@ def fonts_css() -> str | None:
     except requests.RequestException:
         return None
 
-    # Split on the subset comments Google emits before each block, so the blocks
-    # that will never be drawn can be dropped before anything is downloaded.
+    # Subset comments identify the ranges Google serves.
     blocks = re.split(r"/\*\s*([a-z0-9\-]+)\s*\*/", css)
     kept: list[str] = []
     for name, block in zip(blocks[1::2], blocks[2::2]):
@@ -401,16 +316,12 @@ def fonts_css() -> str | None:
     if not kept:
         return None
 
-    # Collapse the duplicate references before anything is downloaded, so each
-    # file is fetched once and embedded once.
     faces, unreadable = merge_faces(kept)
     if len(faces) != len(kept):
         print(f"  fonts: {len(kept)} faces share {len(faces)} file(s)")
     if unreadable:
         print(f"  fonts: {unreadable} block(s) skipped — no readable weight")
 
-    # Every distinct font file the faces refer to, split into the ones to
-    # fetch and the ones to refuse, once rather than inside the loop.
     remote = {u for block in faces for u in re.findall(r"url\((https://[^)]+)\)", block)}
     wanted = sorted(u for u in remote if font_url(u))
     refused = sorted(remote - set(wanted))
@@ -435,22 +346,13 @@ def fonts_css() -> str | None:
             continue
 
     print(f"  fonts: {embedded} file(s) inlined, subsets {', '.join(KEEP_SUBSETS)}")
-    # Drop any face that could not be embedded; an offline issue never retains
-    # a remote stylesheet or font file as a fallback.
+    # Drop unresolved font faces so the HTML works offline.
     faces = [block for block in faces if "url(https://" not in block]
     return "".join(faces) if embedded and faces else None
 
 
 def face_weight(block: str) -> int | None:
-    """The font weight a block declares, or None if it does not declare a number.
-
-    Google always emits numeric weights, but `@font-face` also permits `normal`
-    and `bold`, and this is called on a stylesheet it downloaded rather than on
-    one written here. Returning None rather than raising keeps the decision at the
-    call site, where a block that cannot be read can be counted and reported — a
-    silently dropped block is a font that does not arrive in a bundled paper,
-    which looks like a design choice and is not.
-    """
+    """The font weight a block declares, or None if it does not declare a number."""
     match = re.search(r"font-weight:\s*(\d+)", block)
     try:
         return int(match.group(1)) if match else None
@@ -459,20 +361,7 @@ def face_weight(block: str) -> int | None:
 
 
 def merge_faces(blocks: list[str]) -> tuple[list[str], int]:
-    """One @font-face per file, not one per weight.
-
-    Google emits a separate block for every weight in the requested family, and
-    with a browser user agent several of those blocks name the *same* file: a
-    variable font covering 300 to 700 is served once and then referenced five
-    times. Inlining block by block writes that file's base64 five times over —
-    twenty blocks, six files, and 1.2MB of the bundle's 2.4MB saying the same
-    thing in different words.
-
-    Sharing one file across two weights is also the proof that the file is
-    variable, so the weight can be widened to the range it demonstrably covers
-    rather than assumed. Blocks are keyed on the unicode range as well as the
-    file, so two subsets are never folded together.
-    """
+    """One @font-face per file, not one per weight."""
     groups: dict[tuple[str, str, str, str], list[tuple[str, int]]] = {}
     unreadable = 0
     for block in blocks:
@@ -506,13 +395,7 @@ def merge_faces(blocks: list[str]) -> tuple[list[str], int]:
 
 
 def strip_preconnect(html: str) -> tuple[str, int]:
-    """Drop the preconnect hints, which point at a host the bundle no longer uses.
-
-    index.html preconnects to fonts.googleapis.com and fonts.gstatic.com so the
-    hosted copy can begin its font handshake early. The bundle carries its fonts
-    inside it, so what is left is a DNS lookup and a TLS handshake for nothing —
-    on a phone with no signal, a wait before a page that needed no network at all.
-    """
+    """Drop the preconnect hints, which point at a host the bundle no longer uses."""
     count = len(re.findall(r'<link rel="preconnect"[^>]*>', html))
     html = re.sub(r'\s*<link rel="preconnect"[^>]*>', "", html)
     return html, count
@@ -524,9 +407,7 @@ def inline_fonts(html: str, *, offline: bool = False) -> tuple[str, bool]:
         print("  fonts: could not be inlined — the paper will use system faces")
         html = re.sub(r'<link href="https://fonts\.googleapis\.com/[^"]+" rel="stylesheet">', "", html)
         return html, False
-    # The remote link is replaced, not supplemented: leaving it in would make the
-    # bundled file reach for the network on open, which is the one thing a bundle
-    # exists to avoid.
+    # Replace the remote link to avoid font requests when reading offline.
     html = re.sub(
         r'<link href="https://fonts\.googleapis\.com/[^"]+" rel="stylesheet">',
         "<style>\n" + css + "\n</style>",
@@ -535,7 +416,6 @@ def inline_fonts(html: str, *, offline: bool = False) -> tuple[str, bool]:
     return html, True
 
 
-# --- Entry point -------------------------------------------------------------
 
 
 def build(output: Path, *, offline: bool = False) -> None:
@@ -547,9 +427,6 @@ def build(output: Path, *, offline: bool = False) -> None:
     if style_count:
         html, script_count = inline_scripts(html)
     else:
-        # Refusing rather than shipping a paper with no styling and no rendering:
-        # a bundle that half-works is worse than a build that fails, because the
-        # failure arrives silently on a phone at seven in the morning.
         raise SystemExit("bundle: index.html has no local stylesheet to inline")
 
     html, files, data_bytes = embed_data(html, offline=offline)

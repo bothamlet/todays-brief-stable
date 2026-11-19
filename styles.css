@@ -1,8 +1,5 @@
-/* ============================================
-   TODAY'S BRIEF — Daily News Presentation
-   ============================================ */
+/* Today's Brief */
 
-/* --- Reset & Base --- */
 *,
 *::before,
 *::after {
@@ -12,7 +9,6 @@
 }
 
 :root {
- /* Warm cream palette */
  --bg: #faf7ef;
  --bg-card: #faf7ef;
  --text-dark: #1a1a1a;
@@ -20,24 +16,13 @@
  --text-light: #888;
  --border: #e2ddd3;
 
- /* Category accents (set via JS per page) */
  --accent: #2563eb;
  --accent-rgb: 37, 99, 235;
 
- /* Typography */
  --font-headline: "Fraunces", Georgia, serif;
- /* The same face, under the name nine rules actually use.
-
-     --font-display was referenced from the sports dashboard onwards and never
-     defined, so every declaration mentioning it was invalid and the element fell
-     back to the inherited body font. It fails silently, which is how rules across
-     three pages came to be set in Inter while their source said otherwise — the
-     feature card, the team name in the spotlight, and the headline cards on the
-     EuroLeague panel. */
  --font-display: var(--font-headline);
  --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
 
- /* Sizing */
  --phone-width: 390px;
  --phone-height: 844px;
  --page-padding: 28px;
@@ -54,7 +39,7 @@ body {
  overflow: hidden;
 }
 
-/* --- Phone Frame --- */
+/* Phone frame */
 .phone-frame {
  touch-action: pan-y pinch-zoom;
  position: relative;
@@ -83,7 +68,7 @@ body {
  z-index: 100;
 }
 
-/* --- Page Indicator Dots --- */
+/* Section navigation */
 .page-dots {
  position: absolute;
  top: 18px;
@@ -119,7 +104,6 @@ body {
  outline-offset: 2px;
 }
 
-/* Dot colors by category */
 .dot[data-color="violet"].active::before {
  background: #4f46e5;
 }
@@ -142,7 +126,6 @@ body {
  background: #a16207;
 }
 
-/* --- Pages Wrapper --- */
 .pages-wrapper {
  display: flex;
  width: calc(var(--phone-width) * 6);
@@ -170,7 +153,7 @@ body {
  min-height: 100%;
 }
 
-/* --- Page Header --- */
+/* Section masthead */
 .page-label {
  font-family: var(--font-body);
  font-size: 11px;
@@ -188,7 +171,6 @@ body {
  line-height: 0.95;
  letter-spacing: -2px;
  margin-bottom: 4px;
- /* Image mask inside text — each category gets its own */
  background-size: cover;
  background-position: center;
  -webkit-background-clip: text;
@@ -196,7 +178,6 @@ body {
  -webkit-text-fill-color: transparent;
 }
 
-/* Title fills — gradient + pattern placeholders */
 .title-tech {
  background-image: linear-gradient(
   135deg,
@@ -259,10 +240,6 @@ body {
  margin-bottom: 20px;
 }
 
-/* Only rendered when the page is more than a day old — the morning run failed and
-   the previous issue is still standing. Quiet by design: the accent colour, not a
-   warning box. The reader needs to know, not to be alarmed. The negative top
-   margin pulls it up under the date line it belongs to. */
 .page-stale {
  font-family: var(--font-body);
  font-size: 12px;
@@ -275,14 +252,13 @@ body {
 
 
 
-/* --- Dividers --- */
 .divider {
  border: none;
  border-top: 1px solid var(--border);
  margin: 20px 0;
 }
 
-/* --- News Cards --- */
+/* Story cards */
 .news-card {
  margin-bottom: 0;
 }
@@ -300,19 +276,12 @@ body {
  background-position: center;
 }
 
-/* Tech placeholders */
 
-/* For You placeholders */
 
-/* Lietuva placeholders */
 
-/* World placeholders */
 
-/* Sports placeholders */
 
-/* Other placeholders */
 
-/* Card metadata */
 .card-meta {
  font-family: var(--font-body);
  font-size: 11px;
@@ -343,8 +312,6 @@ body {
  line-height: 1.55;
  color: var(--text-medium);
  margin-bottom: 10px;
- /* Feed descriptions run long and vary wildly between outlets, which made card
-     heights jump around as you flipped. Clamp to a consistent block. */
  display: -webkit-box;
  -webkit-box-orient: vertical;
  -webkit-line-clamp: 3;
@@ -352,14 +319,12 @@ body {
  overflow: hidden;
 }
 
-/* Card footer */
 .card-footer {
  display: flex;
  align-items: center;
  justify-content: space-between;
 }
 
-/* Card source row */
 .card-source-row {
  display: flex;
  align-items: center;
@@ -373,7 +338,6 @@ body {
  color: var(--text-light);
 }
 
-/* Lean pill */
 .card-lean {
  display: inline-block;
  font-family: var(--font-body);
@@ -429,7 +393,6 @@ body {
  pointer-events: none;
 }
 
-/* --- Swipe hint --- */
 .page-swipe-hint {
  display: flex;
  align-items: center;
@@ -453,9 +416,7 @@ body {
  transform: translateX(4px);
 }
 
-/* ============================================
-   RESPONSIVE
-   ============================================ */
+/* Responsive layout */
 
 @media (max-width: 440px), (pointer: coarse) {
  :root {
@@ -486,9 +447,7 @@ body {
  }
 }
 
-/* ============================================
-   ENTRANCE ANIMATIONS
-   ============================================ */
+/* Entrance animations */
 
 @keyframes fadeSlideUp {
  from {
@@ -525,17 +484,12 @@ body {
  animation-delay: 0.3s;
 }
 
-/* stagger multiple news cards */
 .page.in-view .news-card + .divider + .news-card {
  animation-delay: 0.3s;
 }
 
-/* ============================================
-   PIPELINE-DRIVEN CARDS (render.js)
-   ============================================ */
+/* Article imagery and framing controls */
 
-/* Real article images. The box collapses entirely when a feed carried no
-   image, rather than leaving an empty 16:9 gap in the card. */
 .card-image-img {
  display: block;
  width: 100%;
@@ -549,7 +503,6 @@ body {
  margin-bottom: 0;
 }
 
-/* The headline links out to the outlet's article */
 .card-headline-link {
  color: inherit;
  text-decoration: none;
@@ -561,7 +514,6 @@ body {
  text-decoration-thickness: 1px;
 }
 
-/* Dot strip for the framing arrows — sits in a span so the arrows flank it */
 .card-nav-dots {
  display: inline-flex;
  align-items: center;
@@ -572,7 +524,6 @@ body {
  flex-shrink: 0;
 }
 
-/* Outlet names can be long; let them truncate rather than shove the arrows */
 .card-source-row {
  min-width: 0;
  flex: 1;
@@ -584,7 +535,6 @@ body {
  white-space: nowrap;
 }
 
-/* Lean pills — muted tints, deliberately not partisan colours */
 .card-lean[data-lean="left"] {
  background: rgba(37, 99, 235, 0.1);
  color: #2563eb;
@@ -600,9 +550,7 @@ body {
  color: #c2410c;
 }
 
-/* ============================================
-   DEVELOPING CUE (from the SQLite memory)
-   ============================================ */
+/* Developing stories */
 
 .card-developing {
  margin-bottom: 8px;
@@ -616,9 +564,6 @@ body {
 }
 
 
-/* ============================================
-   EMPTY PAGES
-   ============================================ */
 
 .page-empty {
  padding: 24px 0 40px;

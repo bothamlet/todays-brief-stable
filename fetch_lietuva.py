@@ -1,47 +1,5 @@
 #!/usr/bin/env python3
-"""
-fetch_lietuva.py — the Lietuva page.
-
-The page used to be a filter over the world news roster: stories about Lithuania,
-as reported by the Guardian and the Straits Times. That is Lithuania seen from
-outside — useful, but not what a Lithuanian news page is for. This gives the page
-its own beat and its own sources.
-
-Two kinds of source, as with the sports beat:
-
-  Direct feeds   A Lithuanian newsroom's own RSS: Delfi, 15min, Lrytas, Kauno
-                 diena, Verslo žinios, Bernardinai, Diena. LRT's own feeds are
-                 dead — every path tried returns nothing — so LRT arrives through
-                 the Google bridge below instead, which is the only way to get it.
-
-  Google News    Topic searches in the Lithuanian edition, which is also how the
-                 smaller outlets surface: LRT, Respublika, Alfa, TV3, LNK and the
-                 regional papers. Google is an aggregator, so these pass through an
-                 allowlist, but a wide one — a Lithuanian page without Respublika
-                 would be pretending the country has four newspapers. The bar
-                 excludes gambling, content farms and nobody else.
-
-Three editorial rules decide what actually reaches the page:
-
-  1. LRT leads. It is the outlet of record, so its best story takes the first
-     card rather than competing on score with everything else.
-
-  2. A story is a topic, not an article. When several newsrooms cover one event
-     the card carries all of them and the arrows step between them — the same
-     mechanism as the World page's per-lean frames, minus the lean labels, since
-     these are not politically opposed outlets reading the same event differently.
-     Outlets agreeing on a story is also the honest importance signal: four
-     newsrooms covering something is news, one newsroom covering it may be a press
-     release.
-
-  3. Gossip, horoscopes and weather are not news. Delfi, Lrytas, Kauno diena and
-     Diena all lead their feeds with horoscopes, so untouched they take the page.
-
-Writes data/lietuva.json, ranked and capped, so the page renders what it is given.
-
-Usage:
-    python fetch_lietuva.py
-"""
+"""Collect and group Lithuanian news."""
 
 from __future__ import annotations
 
@@ -68,32 +26,18 @@ from rss_feeds import (
 )
 from textutil import shared_words, significant_tokens
 
-# --- Configuration -----------------------------------------------------------
 
 OUTPUT_PATH = Path("data/lietuva.json")
 
-# Two days: a week is too long for a front page and a day is too short for a
-# country this size to have enough in English-language coverage.
 LOOKBACK_HOURS = 48
 
 MAX_STORIES = 8
 
-# How many outlets one card may step through. Two keeps the arrows meaningful;
-# the World page uses the same number for the same reason.
 MAX_FRAMES = 3
 
-# Content words two headlines must share to count as the same topic. Set at 3
-# because the duplicate that prompted this — the OpenAI/Anthropic/Google item on
-# both Kauno diena and Verslo žinios — shares far more, while two unrelated
-# stories from one outlet rarely share three.
 DUPLICATE_TOKENS = 3
 
-# How many headlines the grouping call may see. The page shows eight cards, so a
-# story outside the newest few dozen cannot reach it anyway — and the call has to
-# return one entry per headline it is given. At 600 candidates it was asked for
-# roughly 15,000 output tokens while allowed 1,500, so the reply truncated, the
-# json never parsed, and every run silently fell back to word matching. That
-# fallback is why one drone incident appeared as four separate cards.
+# Bound the model request to the latest articles.
 GROUP_LIMIT = 80
 
 # Output budget, sized to the number of headlines actually sent.
@@ -102,15 +46,9 @@ GROUP_TOKENS_BASE = 200
 
 EPOCH = utc_now().replace(year=1970)
 
-# --- Sources -----------------------------------------------------------------
 
 DIRECT_FEEDS: tuple[tuple[str, str], ...] = (
-    # LRT's feed is not at a /rss path — every one of those 404s. It is a query
-    # parameter on the root, declared in the site's own <link rel="alternate">,
-    # which is where it was finally found. Worth the hunt: as a direct feed it
-    # supplies real article URLs instead of Google redirects, and 8 of 8 sampled
-    # articles yield their og:image, where a Google-sourced LRT item could have
-    # neither.
+    # LRT serves its RSS feed through a query route.
     ("LRT", "https://www.lrt.lt/?rss"),
     ("Delfi", "https://www.delfi.lt/rss/feeds/lithuania.xml"),
     ("15min", "https://www.15min.lt/rss"),
@@ -125,10 +63,6 @@ GOOGLE_NEWS_URL = (
     "https://news.google.com/rss/search?q={query}&hl={hl}&gl={gl}&ceid={ceid}"
 )
 
-# (label, query, locale). The English one carries Lithuania as the outside world
-# sees it — NATO, the drone incidents, the Belarus border — which is half of what
-# a front page is for. LRT is deliberately absent: it is a direct feed above now,
-# and asking Google for it too would only add redirect links to the same articles.
 GOOGLE_TOPICS: tuple[tuple[str, str, str], ...] = (
     ("Lietuva", "Lietuva", "lt"),
     ("Lietuvos naujienos", "Lietuvos naujienos", "lt"),
@@ -137,21 +71,9 @@ GOOGLE_TOPICS: tuple[tuple[str, str, str], ...] = (
     ("Lithuania", "Lithuania", "en"),
 )
 
-# --- Reputability ------------------------------------------------------------
-# Wide on purpose: this is a Lithuanian page. Excluded are the categories rather
-# than the tone — betting and casino sites, content farms, and aggregators that
-# rewrite other people's reporting.
 
 TRUSTED_PUBLISHERS: frozenset[str] = frozenset(
     {
-        # Written as each outlet writes itself, not lowercased: normalise() folds
-        # case anyway, and these strings are also what the card displays. The
-        # previous all-lowercase list is why a page showed "lrt" beside "LRT".
-        #
-        # Domain forms are deliberately absent. "lrt.lt" reduces to the same
-        # canonical form as "LRT" and is matched by it, so listing both only
-        # created a second spelling to display.
-        # national broadcasters and papers of record
         "LRT",
         "LRT OPUS",
         "LRT televizija",
@@ -203,20 +125,12 @@ TRUSTED_PUBLISHERS: frozenset[str] = frozenset(
     }
 )
 
-# Short names are matched exactly, so the abbreviations need listing alongside the
-# spellings above — and so do the domains that are abbreviations of nothing.
-# "lrt.lt" reduces to the same canonical form as "LRT" and needs no entry; "kl.lt"
-# reduces to "kl" and "vz.lt" to "vz", which share no substring with "Klaipėda" or
-# "Verslo žinios". Leaving them out dropped 16 items a run.
+# Short publisher names require an exact match.
 TRUSTED = Allowlist(
     TRUSTED_PUBLISHERS,
     exact={"LRT", "BNS", "ELTA", "TV3", "LNK", "DW", "kl.lt", "vz.lt", "ve.lt", "15min.lt"},
 )
 
-# --- Not news -----------------------------------------------------------------
-# A factual list, not a taste judgement: horoscopes, forecasts, lotteries and the
-# celebrity beat. Every Lithuanian feed sampled leads with at least one of these,
-# and untouched they dominate a recency-ordered page.
 JUNK = re.compile(
     # horoscopes and the stars
     r"horoskop|zodiak|astrolog|svajonių knyg|horoscope|zodiac|astrolog"
@@ -230,15 +144,7 @@ JUNK = re.compile(
     re.IGNORECASE,
 )
 
-# The topic is not Lithuanian news unless it says so. Lithuanian outlets carry the
-# world too: Kauno diena's main feed led with an amusement-park injury in
-# Maharashtra.
-#
-# Every alternative is anchored to a word start, which matters more than it looks.
-# Unanchored, "trak" (for Trakai) matches inside "a-TRAK-cionas" — so a story about
-# an amusement ride in India counted as Lithuanian news. The names are stems, not
-# whole words, because Lithuanian inflects: "kaun" has to catch Kaunas, Kaune and
-# Kauno alike.
+# A local publisher does not make a foreign headline Lithuanian news.
 LITHUANIA = re.compile(
     r"\b(?:lietuv|vilni|kaun|klaipėd|klaiped|šiauli|siauli|panevėž|panevez|alyt"
     r"|marijampol|taurag|telši|telsi|uten|ukmerg|mažeiki|mazeiki|jonav"
@@ -247,8 +153,7 @@ LITHUANIA = re.compile(
     re.IGNORECASE,
 )
 
-# Kaunas is worth a second look — the user asked for it — but as a nudge inside
-# the score, not a category of its own.
+# Prefer Kaunas when ranking otherwise comparable topics.
 KAUNAS = re.compile(r"kaun", re.IGNORECASE)
 KAUNAS_BONUS = 1.5
 
@@ -263,18 +168,11 @@ def is_junk(article: dict[str, Any]) -> bool:
 
 
 def is_about_lithuania(article: dict[str, Any]) -> bool:
-    """True when the story names Lithuania or somewhere in it.
-
-    Crude by construction — it will drop a domestic story that happens not to name
-    a place, and it cannot see a foreign story that mentions Vilnius in passing.
-    The alternative is the classifier in classify_articles.py, which answers this
-    properly; that costs a model call per headline, and this costs nothing.
-    """
+    """True when the story names Lithuania or somewhere in it."""
     text = f"{article.get('title') or ''} {article.get('description') or ''}"
     return bool(LITHUANIA.search(text))
 
 
-# --- Gathering ---------------------------------------------------------------
 
 
 def collect() -> tuple[list[dict[str, Any]], list[str], int, int]:
@@ -308,9 +206,6 @@ def collect() -> tuple[list[dict[str, Any]], list[str], int, int]:
         row["via"] = via
         kept.append(row)
 
-    # Direct feeds are newsrooms we chose, so they pass the publisher gate.
-    # Each item carries its position in its own feed, which is the outlet's own
-    # statement of what matters: item 0 is that newsroom's lead.
     for rows in direct.values():
         for position, row in enumerate(rows):
             row["feed_rank"] = position
@@ -319,13 +214,11 @@ def collect() -> tuple[list[dict[str, Any]], list[str], int, int]:
     for rows in google.values():
         for position, row in enumerate(rows):
             publisher = str(row.get("source") or "")
-            # Per item, not per feed: one topic search returns LRT, Respublika and
-            # a betting slip in the same hundred results.
+            # Publisher filtering is per item because search feeds mix sources.
             if publisher not in TRUSTED:
                 rejected.append(publisher or "(no publisher)")
                 continue
-            # Google credits LRT as "lrt.lt"; LRT's own feed says "LRT". One page
-            # showing both spellings of one newsroom is what this fixes.
+            # Normalize publisher aliases before counting outlets.
             row["source"] = TRUSTED.display(publisher)
             row["feed_rank"] = position
             take(row, "google")
@@ -333,27 +226,16 @@ def collect() -> tuple[list[dict[str, Any]], list[str], int, int]:
     return kept, rejected, junk, foreign
 
 
-# --- Topics ------------------------------------------------------------------
 
 
 def feed_rank(article: dict[str, Any]) -> int:
-    """The item's position in its own feed, or a middling default.
-
-    collect() sets this from enumerate(), so it is already an int; the check is
-    there because this feeds a sort key, and a malformed record should not take
-    down a run over a tie-break.
-    """
+    """The item's position in its own feed, or a middling default."""
     value = article.get("feed_rank")
     return value if isinstance(value, int) else 50
 
 
 def topic_score(frames: list[dict[str, Any]], newest: Any) -> float:
-    """How much this topic deserves the page.
-
-    Three signals, and the first is the honest one: how many separate newsrooms
-    thought it was worth covering. The others are the outlet's own ranking of it
-    (feed position) and recency, which breaks ties.
-    """
+    """How much this topic deserves the page."""
     outlets = {normalise(str(f.get("source") or "")) for f in frames}
     score = 2.0 * len(outlets)
 
@@ -414,8 +296,7 @@ def group_from_model(articles: list[dict[str, Any]]) -> list[list[dict[str, Any]
         if not isinstance(entry, dict):
             continue
         number, group = entry.get("n"), entry.get("group")
-        # Indices are checked because a hallucinated one would silently drop, or
-        # worse duplicate, a story that the page then never shows.
+        # Validate returned indices before using them to group articles.
         if not isinstance(number, int) or not 0 <= number < len(articles):
             continue
         if not isinstance(group, int):
@@ -425,8 +306,7 @@ def group_from_model(articles: list[dict[str, Any]]) -> list[list[dict[str, Any]
     if not buckets:
         return None
 
-    # Anything the model left out becomes its own single-article topic, so a bad
-    # reply can lose a grouping but never a story.
+    # Keep unassigned articles as their own topics.
     placed = {id(a) for rows in buckets.values() for a in rows}
     for article in articles:
         if id(article) not in placed:
@@ -436,13 +316,7 @@ def group_from_model(articles: list[dict[str, Any]]) -> list[list[dict[str, Any]
 
 
 def group_by_tokens(articles: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
-    """The fallback: same event judged by shared title words.
-
-    Keeps each topic anchored to its FIRST article's words, never a growing union.
-    Unioning looked natural and was wrong — every article admitted widened the
-    topic, so it loosened as it filled, and the first card became LRT and Delfi on
-    a drone incident plus lrytas.lt on a broken flagpole.
-    """
+    """The fallback: same event judged by shared title words."""
     topics: list[dict[str, Any]] = []
     for article in articles:
         tokens = significant_tokens(str(article.get("title") or ""))
@@ -456,34 +330,13 @@ def group_by_tokens(articles: list[dict[str, Any]]) -> list[list[dict[str, Any]]
 
 
 def group_topics(articles: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
-    """Collect articles into topics: one event, however many newsrooms covered it.
-
-    Token matching cannot do this, and the reason is worth recording. The page's
-    duplicates were one drone incident appearing as four cards:
-
-        Numu\u0161us bepilot\u012f, Lietuva ir Lenkija \u017eada sutelkti paj\u0117gas
-        LRT trumpai. Lietuvoje numu\u0161tas dronas \u2013 kas vyko pra\u0117jusi\u0105 par\u0105?
-        NATO jets shoot down a drone in Lithuanian airspace
-        Po naktinio drono incidento Lietuvoje \u2013 naujausi...
-
-    The Lithuanian and English headlines share no words at all, and the two
-    Lithuanian ones share one \u2014 below any threshold that would not also merge
-    unrelated stories. Same-event judgement across languages is a reading task, so
-    it goes to the model, in one call that sees every headline at once. That is
-    also the only way to be consistent: a per-article call cannot know what it
-    concluded about the previous one.
-    """
+    """Collect articles into topics: one event, however many newsrooms covered it."""
     if len(articles) < 2:
         return [[a] for a in articles]
 
-    # Only the newest GROUP_LIMIT are worth grouping: the page shows eight cards,
-    # and the rest cannot reach it. Whatever is left over becomes its own topic
-    # below, so nothing is lost by the cap.
     head = articles[:GROUP_LIMIT]
     grouped = group_from_model(head)
     if grouped:
-        # Everything past the cap is grouped with itself. These are the oldest
-        # candidates, so they sort last and are cut by MAX_STORIES regardless.
         for article in articles[GROUP_LIMIT:]:
             grouped.append([article])
         return grouped
@@ -493,21 +346,7 @@ def group_topics(articles: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
 
 
 def build_card(frames_in: list[dict[str, Any]]) -> dict[str, Any]:
-    """One card: the event's own story plus a frame per outlet that carried it.
-
-    Two passes, because a card can repeat itself in two different ways.
-
-    First, one frame per outlet: a newsroom that ran two pieces on the same event
-    would otherwise put its own name on the card twice and inflate the count that
-    says how many newsrooms covered it.
-
-    Then, one frame per article. Deduping by outlet does not catch syndication, and
-    Diena republishes Kauno diena word for word — so every card read
-    "Kauno diena / Diena" with the identical headline under both. They genuinely
-    are different outlets, so the outlet key cannot see it; identical text is
-    dropped as well. This runs after the ordering, so the preferred outlet is the
-    one that survives.
-    """
+    """One card: the event's own story plus a frame per outlet that carried it."""
     best_per_outlet: dict[str, dict[str, Any]] = {}
     for article in frames_in:
         key = normalise(str(article.get("source") or "?")) or "?"
@@ -556,8 +395,6 @@ def select(groups: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
     seen_sources: Counter[str] = Counter()
     for _score, frames in ranked:
         card = build_card(frames)
-        # No outlet takes more than three cards. Without this the page is whichever
-        # four newsrooms publish fastest, which is not the same as the day's news.
         key = normalise(str(card.get("source") or "?"))
         if seen_sources[key] >= 3:
             continue
@@ -604,32 +441,22 @@ def main() -> None:
     fresh: list[dict[str, Any]] = []
     for article in articles:
         stamp = parse_timestamp(article.get("publishedAt"))
-        # An undated item is kept: a story missing its clock is not evidence it is
-        # old, and Google occasionally omits the field.
+        # Keep undated articles rather than treating them as expired.
         if stamp is None or stamp >= cutoff:
             fresh.append(article)
 
     fresh = dedupe_by_url(fresh)
 
-    # newest_first RETURNS a sorted list; it does not sort in place. Called as a
-    # bare statement it does nothing at all, which left the list in collection
-    # order — every direct feed before every Google item — and quietly undid the
-    # "freshest outlet first" ordering select() depends on.
     fresh = newest_first(fresh)
 
     cards = select(group_topics(fresh))
 
-    # Only what is going on the page: this costs one page fetch per item, and the
-    # frames are what the reader sees when they press the arrows. Runs before the
-    # card-level fallback below so that fallback can use the pictures this finds.
+    # Fetch preview images only for selected cards.
     filled = backfill_images([f for card in cards for f in card["frames"]])
     if filled:
         print(f"  recovered {filled} image(s) from the article pages")
 
-    # A card leads with LRT's headline, and LRT's own feed carries no images — so
-    # the picture comes from whichever frame has one. The headline and the link
-    # stay the lead outlet's; the photograph is of the event, which by definition
-    # every frame is about. This is why it runs after the backfill.
+    # Try alternate outlet images when the lead feed offers none.
     borrowed = 0
     for card in cards:
         if card.get("urlToImage"):

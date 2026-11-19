@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""
-classify_articles.py — Step 3 of the daily news pipeline.
-
-Reads data/world_raw.json, classifies each headline with DeepSeek, drops the
-noise, then writes a significance-sorted list to data/world_filtered.json.
-
-Auth: set DEEPSEEK_API_KEY in the environment.
-
-Override the model with CLASSIFY_MODEL (default: deepseek-flash).
-
-Usage:
-    python classify_articles.py
-
-Cost notes:
-    * Only the headline + summary are sent — never the full article body.
-    * max_tokens is capped low because the reply is a tiny JSON object.
-"""
+"""Classify and rank clustered stories."""
 
 from __future__ import annotations
 
@@ -28,7 +12,6 @@ from common import first_existing, load_json, save_json
 from llm import MODEL as DEFAULT_MODEL
 from llm import ask_json
 
-# --- Configuration -----------------------------------------------------------
 
 INPUT_CANDIDATES = (
     Path("data/world_clustered.json"),  # preferred: one story per event
@@ -45,8 +28,7 @@ CATEGORIES = ("World", "Lithuania", "Tech", "Sports", "Other", "Discard")
 SIGNIFICANCE = ("high", "medium", "low")
 SIGNIFICANCE_RANK = {"high": 0, "medium": 1, "low": 2}
 
-# Used when the model errors or returns something unparseable. We keep the
-# article (never silently drop it) but park it at the bottom of the pile.
+# Keep stories with unavailable model verdicts unless the fallback rate is too high.
 FALLBACK: dict[str, str] = {
     "category": "Other",
     "significance": "low",
@@ -55,16 +37,10 @@ FALLBACK: dict[str, str] = {
     "reason": "classification unavailable",
 }
 
-# classify() never raises — a failed call degrades to FALLBACK so one bad headline
-# cannot abort the run. That is right for one headline and catastrophic for all of
-# them: if the model is rate-limited or out of quota, every article falls back and
-# a full set of FALLBACK verdicts overwrites the previous run's real ones. The
-# result looks like a successful run in every log line except the significance
-# counts. Past this share, the run is not written over good data.
+# Reject a mostly default edition without replacing the last published classification.
 MAX_FALLBACK_FRACTION = 0.5
 
-# DeepSeek's JSON output mode requires the literal word "json" in the prompt
-# plus an example of the shape we want.
+# DeepSeek requires the word “json” in JSON-mode prompts.
 SYSTEM_PROMPT = """\
 You triage headlines for a daily news briefing.
 
@@ -101,7 +77,6 @@ Reply with a single json object and nothing else, in exactly this shape:
 {"category": "World", "significance": "high", "topic": "Iran-Saudi escalation", "region": "Middle East", "reason": "major geopolitical shift"}"""
 
 
-# --- Helpers -----------------------------------------------------------------
 
 
 def coerce_verdict(parsed: dict[str, Any]) -> dict[str, str]:
@@ -116,14 +91,10 @@ def coerce_verdict(parsed: dict[str, Any]) -> dict[str, str]:
 
     reason = str(parsed.get("reason", "")).strip()[:120] or "no reason given"
 
-    # Carried so the briefing can avoid filling every slot with one ongoing
-    # event. Headlines about the same crisis often share no vocabulary at all,
-    # so this cannot be derived lexically downstream.
+    # The briefing uses region to diversify its selection.
     topic = str(parsed.get("topic", "")).strip()[:48].lower() or FALLBACK["topic"]
 
-    # The topic label is deliberately granular — "yemen conflict" and "us-iran
-    # conflict" are separate topics — so it cannot stop one REGION taking the
-    # whole page. The briefing caps per region as well as per topic.
+    # Topics identify specific events, not broad categories.
     regions = {
         "middle east",
         "europe",
@@ -146,7 +117,6 @@ def coerce_verdict(parsed: dict[str, Any]) -> dict[str, str]:
     }
 
 
-# --- Classification ----------------------------------------------------------
 
 
 def build_prompt(article: dict[str, Any]) -> str:
@@ -205,7 +175,6 @@ def report(kept: list[dict[str, Any]], discarded: list[dict[str, Any]]) -> None:
     print(f"Written to {OUTPUT_PATH}")
 
 
-# --- Entry point -------------------------------------------------------------
 
 
 def main() -> None:

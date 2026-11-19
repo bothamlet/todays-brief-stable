@@ -1,21 +1,6 @@
 #!/usr/bin/env bash
 #
-# install-timer.sh — put the morning paper on a schedule.
-#
-# Installs the systemd user units, turns the timer on, and — this is the part
-# that is easy to miss — enables lingering.
-#
-# Lingering is what lets a user service run when the user is not logged in. A
-# laptop that boots to a login screen and sits there has no user session, so
-# without it the timer is simply not running, and the failure is invisible: the
-# unit is enabled, `systemctl --user status` looks right from an SSH session, and
-# no paper arrives. `loginctl enable-linger` is one command and easy to forget.
-#
-# Re-runnable. Copies the units over any previous version, reloads, restarts.
-#
-# Usage:
-#     ./install-timer.sh
-#     ./install-timer.sh --remove
+# Install or remove the daily systemd user timer.
 
 set -euo pipefail
 
@@ -43,7 +28,6 @@ if ! command -v systemctl >/dev/null; then
     exit 1
 fi
 
-# Prefer the project virtualenv; otherwise use the active shell interpreter.
 if [[ -x "$ROOT/.venv/bin/python3" ]]; then
     PYTHON="$ROOT/.venv/bin/python3"
 else
@@ -71,7 +55,7 @@ PY
 systemctl --user daemon-reload
 systemctl --user enable --now todays-brief.timer
 
-# Without this the timer only runs while a session is open.
+# Lingering allows delivery when no user session is open.
 if ! loginctl show-user "$USER" 2>/dev/null | grep -q "Linger=yes"; then
     if loginctl enable-linger "$USER" 2>/dev/null; then
         echo "Enabled lingering, so the timer runs without you logged in."

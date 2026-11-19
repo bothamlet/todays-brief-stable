@@ -1,37 +1,5 @@
 #!/usr/bin/env python3
-"""
-fetch_europe.py — the Europe page.
-
-This one is not a beat. The sports and Lietuva pages fetch their own sources
-because the world roster does not cover their subjects well; Europe needs nothing
-new. Every story the world pipeline collects is already classified with a region,
-and 63 of today's 234 are Europe — data that was being computed and read by no
-page at all.
-
-It reads two files and writes one, so it takes about a second:
-
-    data/world_tracked.json   the classified, history-annotated stories
-    data/world_covered.json   for briefing_rank — what the World page leads with
-    data/europe.json          Europe, without the front page's own stories
-
-Two decisions worth stating.
-
-Europe is what the front page is NOT. The World page shows the briefing, and the
-briefing is two-thirds European on a European news day, so a naive region filter
-would open the Europe tab with the same two cards the reader just swiped past. The
-stories the briefing already carries are held back, which makes this page additive
-rather than a re-run. It is why the page starts lower down the day's news.
-
-Sourcing is the world roster — Le Monde, France 24, Sky News, the Financial Times,
-The Economist, the BBC — rather than European-native outlets. That is the same
-trade the region data already made, and it keeps this page free. A Europe desk with
-Euronews, Politico Europe, Der Spiegel and El Pais would cover the continent better
-than six international desks do; that is a beat like the other two, and it is the
-obvious upgrade if this page reads thin.
-
-Usage:
-    python fetch_europe.py
-"""
+"""Select stories for the Europe section."""
 
 from __future__ import annotations
 
@@ -47,7 +15,6 @@ from common import (
 )
 from publishers import normalise
 
-# --- Configuration -----------------------------------------------------------
 
 TRACKED_PATH = Path("data/world_tracked.json")
 COVERED_PATH = Path("data/world_covered.json")
@@ -57,8 +24,7 @@ REGION = "europe"
 
 MAX_STORIES = 8
 
-# Delfi and Lrytas publish fifty items a day each on the Lietuva page for the same
-# reason this exists: without it the page is whichever two desks file fastest.
+# Cap stories per outlet to preserve source variety.
 MAX_PER_SOURCE = 2
 
 SIGNIFICANCE_RANK = {"high": 0, "medium": 1, "low": 2}
@@ -91,17 +57,8 @@ def european(stories: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def rank(stories: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Most significant first, newest inside a tier — then spread across outlets.
-
-    A flat two-key sort is enough here, unlike the World page's briefing: there are
-    no topic caps and no lean balance to keep, so there is nothing for two
-    implementations to disagree about.
-    """
-    # Two passes, not two sorts. Python's sort is stable, so sorting by date first
-    # and by tier second keeps the date order intact inside each tier. Writing it
-    # as one order then another — sorted() by tier, then newest_first() over the
-    # result — discards the tier entirely, and the first run of this page showed
-    # eight medium stories while nine high-significance ones sat unused.
+    """Most significant first, newest inside a tier — then spread across outlets."""
+    # Apply date before significance so stable sorting keeps chronology within each tier.
     ordered = newest_first(stories)
     ordered.sort(
         key=lambda s: SIGNIFICANCE_RANK.get(

@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-"""
-cluster_stories.py — Step 1b of the daily news pipeline.
-
-Merges the same story as reported by different outlets into one cluster, so the
-briefing shows one card per event rather than seven cards for one ferry sinking.
-
-Reads  data/world_raw.json
-Writes data/world_clustered.json
-
-Method: lexical, not an LLM call. Titles are lowercased, stopworded and compared
-with Jaccard similarity; pairs above SIMILARITY_THRESHOLD are merged with
-union-find. Verified against a live 300-article corpus: it merges the Indonesian
-ferry story across seven outlets (Guardian through Fox News) with no false
-merges, and costs nothing.
-
-Why lexical rather than an LLM: classification cost is not the concern here
-(300 deepseek-flash calls is fractions of a cent), but running an LLM over every
-pairing is slow and nondeterministic. This is free, instant, and reproducible.
-
-Usage:
-    python cluster_stories.py            # cluster and write
-    python cluster_stories.py --show 10  # also print the 10 biggest clusters
-"""
+"""Group same-day RSS reports into stories."""
 
 from __future__ import annotations
 
@@ -34,14 +12,11 @@ from typing import Any
 from common import load_json, parse_timestamp, save_json
 from textutil import clean_title, significant_tokens
 
-# --- Configuration -----------------------------------------------------------
 
 INPUT_PATH = Path("data/world_raw.json")
 OUTPUT_PATH = Path("data/world_clustered.json")
 
-# 0.34 was tuned against a live corpus — but before the clean_title bug was fixed,
-# so it was tuned against partly mangled tokens. Worth re-checking if clustering
-# ever starts over- or under-merging.
+# The threshold is tuned for shared headline tokens.
 SIMILARITY_THRESHOLD = 0.34
 
 
@@ -70,7 +45,6 @@ class UnionFind:
             self.parent[right_root] = left_root
 
 
-# --- Clustering --------------------------------------------------------------
 
 
 def build_clusters(rows: list[dict[str, Any]]) -> list[list[int]]:
@@ -91,11 +65,7 @@ def build_clusters(rows: list[dict[str, Any]]) -> list[list[int]]:
 
 
 def pick_representative(rows: list[dict[str, Any]], members: list[int]) -> int:
-    """Choose the member that best describes the story.
-
-    Longest description wins: it gives the classifier and the card the most
-    substance. Ties break toward the earliest to publish.
-    """
+    """Choose the member that best describes the story."""
     return max(
         members,
         key=lambda i: (
@@ -109,9 +79,7 @@ def build_story(rows: list[dict[str, Any]], members: list[int]) -> dict[str, Any
     """Flatten one cluster into a story, keeping the original article schema."""
     lead = rows[pick_representative(rows, members)]
 
-    # One entry per OUTLET, newest article first. An outlet that files twice on
-    # the same story (France 24 did on the AfD protests) must not appear twice,
-    # or outlet_count and len(outlets) disagree about what the list means.
+    # Use the newest article from each outlet.
     newest_first = sorted(
         members,
         key=lambda i: parse_timestamp(rows[i].get("publishedAt"))
@@ -140,15 +108,12 @@ def build_story(rows: list[dict[str, Any]], members: list[int]) -> dict[str, Any
         "source": lead.get("source"),
         "publishedAt": lead.get("publishedAt"),
         "via": lead.get("via", "rss"),
-        # Which outlets ran this story, so downstream steps and the UI know who
-        # covered it before per-lean coverage is even fetched.
         "outlets": outlets,
         "outlet_count": len(outlets),
         "article_count": len(members),
     }
 
 
-# --- Entry point -------------------------------------------------------------
 
 
 def main() -> None:
@@ -166,8 +131,6 @@ def main() -> None:
     clusters = build_clusters(rows)
 
     stories = [build_story(rows, members) for members in clusters]
-    # Most-covered stories first, then most recent — a cheap prominence signal
-    # before classification scores significance properly.
     stories.sort(
         key=lambda s: (
             -s["outlet_count"],

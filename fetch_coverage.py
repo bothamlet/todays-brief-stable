@@ -1,38 +1,5 @@
 #!/usr/bin/env python3
-"""
-fetch_coverage.py — Step 5 of the daily news pipeline.
-
-For every high-significance story, gather multi-outlet coverage per political
-lean and attach it as `coverage: {left: [...], center: [...], right: [...]}`.
-
-The source is RSS: a fixed roster of two left, two centre and two right outlets,
-each read through several desk feeds and matched locally on keywords. No key, no
-quota, no API quota, no domain guessing, and no third-party index deciding
-what exists — which is also what makes the Guardian and the New York Times
-reachable at all.
-
-There used to be a second source. NewsAPI queried by keyword against
-domain-restricted searches, off by default, and it is gone: RSS found strictly
-more frames for every story tested, needs no key, and needs no API quota.
-What NewsAPI left behind was two hundred lines of machinery for a source nobody
-had switched on — request builders, a domain probe, a source index, three
-diagnostic subcommands, fifteen constants, and a degraded-run guard that existed
-only because a metered API can throttle. The instruction to enable it sat in this
-docstring, in the constant beside it, and in four separate comments, none of
-which had ever been acted on.
-
-Feeds are fetched once per run, not once per story, so adding stories is free.
-Nothing is fabricated — a lean with no hits gets an empty list.
-
-Input:  data/world_tracked.json, falling back through the earlier stages
-Output: data/world_covered.json  (input articles, high-significance ones enriched)
-
-Keyword extraction uses DEEPSEEK_API_KEY, optionally — it falls back to a
-stopword heuristic if the key is unset or unavailable.
-
-Usage:
-    python fetch_coverage.py
-"""
+"""Collect and compare alternate coverage of world stories."""
 
 from __future__ import annotations
 
@@ -76,18 +43,9 @@ from textutil import (
 )
 
 
-# --- Configuration -----------------------------------------------------------
-#
-# Was a table of forty constants for two sources. Fifteen of them configured
-# NewsAPI — its URLs, its key, its page size, its polite delay between calls, the
-# three thresholds its domain probe used, and the fraction of failed queries that
-# meant a degraded run. All of it went with the source.
 
 DEEPSEEK_MODEL = os.environ.get("COVERAGE_MODEL") or MODEL
 
-# Pipeline order is: fetch_world -> cluster_stories -> classify_articles ->
-# track_stories -> here. So the TRACKED file is preferred: it is the classified
-# set plus each story's `history` block, which is what the developing cue needs.
 INPUT_CANDIDATES = (
     Path("data/world_tracked.json"),  # preferred: classified AND tracked
     Path("data/world_filtered.json"),  # fallback: no history, cue degrades to hidden
@@ -106,63 +64,13 @@ LEANS = ("left", "center", "right")
 RSS_WORKERS = 8  # parallel feed fetches; feeds are independent hosts
 MAX_RSS_HITS_PER_LEAN = 2  # frames kept per lean; the card shows at most this
 
-# How many content words a candidate headline must share with the story headline.
-#
-# Matching on the primary term alone was far too loose: a story about Israel's
-# destruction of south Lebanon pulled in "UK bans goods from Israeli settlements"
-# and "Israel's E1 plan explained", because every one of them contains "Israel".
-# Requiring ALL terms instead was far too strict, dropping 75% of frames and
-# emptying six stories completely — a legitimate Ukraine drone story lost six of
-# its seven frames to "drone strikes" not being verbatim in the headline.
-#
-# Sharing two content words with the story headline is the calibrated middle:
-# it drops the West Bank stories while keeping every story covered at least once.
+# Require enough common headline terms before semantic verification.
 MIN_TITLE_OVERLAP = 2
-# How many high-significance stories to gather coverage for. Classification now
-# yields ~66 high-significance stories a day, and fetching coverage for every one
-# produces ~2000 items — far more than a briefing can use. Raised this if you
-# want the full set.
 MAX_STORIES_FOR_COVERAGE = 20
 
-# ---------------------------------------------------------------------------
-# Briefing selection — which covered stories are worth showing, in what order.
-#
-# Ranking by importance alone filled four of the five slots with one Iran-Saudi
-# escalation: a base attack, a pipeline attack, a ship strike and a summit. Each
-# was genuinely distinct and genuinely significant; together they were one event
-# monopolising the page. Selection still favours importance, but caps how many
-# slots any single topic may take.
-#
-# Recomputed here rather than in the UI so render.js and write_desk.py read the
-# same answer instead of each re-implementing the rule and drifting apart.
-# ---------------------------------------------------------------------------
+# Outlet lean is editorial metadata, not article-level scoring.
 
-# ---------------------------------------------------------------------------
-# RSS OUTLET ROSTER — the fixed set we read every day.
-#
-# A constant roster keeps the left/centre/right balance predictable day to day.
-# RSS also removes the API key, the 100/day quota, the 429s and the domain-string
-# guessing in one move.
-#
-# REPUTABLE SOURCES ONLY: established newsrooms with published editorial
-# standards and a corrections practice. Aggregators, tabloids, advocacy outlets
-# and opinion magazines are excluded on purpose even where their feeds work:
-# Breitbart, the Daily Caller and the Daily Signal (advocacy), the New York Post
-# (tabloid), HuffPost (aggregator), National Review and Reason (opinion).
-#
-# The right bucket is thin as a result, and that is a finding rather than a gap
-# in the config — see the note on it below.
-#
-# Each outlet lists several desk feeds, so a story is covered regardless of which
-# section it lands in (world, sport, business). Every URL below was fetched live
-# and confirmed to return items.
-#
-# One exception: Reuters has no public feed, so it goes through Google News RSS.
-# See the note on that entry — its links are Google redirects, not reuters.com.
-#
-# Lean ratings are approximate, drawn from commonly published bias references.
-# Move outlets between buckets freely.
-# ---------------------------------------------------------------------------
+# Separate direct feeds from publisher searches so shared feeds are fetched once.
 RSS_OUTLETS: dict[str, dict[str, list[str]]] = {
     "left": {
         "The New York Times": [
@@ -189,16 +97,11 @@ RSS_OUTLETS: dict[str, dict[str, list[str]]] = {
         ],
     },
     "center": {
-        # Reuters publishes no usable RSS: feeds.reuters.com no longer resolves,
-        # and reuters.com answers automated requests with 401/404. Google News RSS
-        # bridges it and returns real Reuters headlines attributed to Reuters, but
-        # note the trade-off: article links are news.google.com redirects rather
-        # than canonical reuters.com URLs. They do resolve when followed.
+        # Use a publisher search where no direct Reuters feed is available.
         "Reuters": [
             "https://news.google.com/rss/search?q=site%3Areuters.com&hl=en-US&gl=US&ceid=US:en",
         ],
-        # AP publishes no public feed either (apnews.com answers 403). Same Google
-        # News bridge, same redirect-link caveat as Reuters.
+        # Use a publisher search where no direct AP feed is available.
         "AP News": [
             "https://news.google.com/rss/search?q=site%3Aapnews.com&hl=en-US&gl=US&ceid=US:en",
         ],
@@ -223,11 +126,7 @@ RSS_OUTLETS: dict[str, dict[str, list[str]]] = {
             "https://www.straitstimes.com/news/world/rss.xml",
         ],
     },
-    # The thin bucket, and structurally so rather than by choice: the mainstream
-    # right-leaning newsrooms publish no usable free feed. The Telegraph returns
-    # 402 (paywall), The Times 404, The Australian and the Washington Examiner 403,
-    # and the Wall Street Journal has no public RSS at all. What is left is Fox
-    # News' news operation plus two smaller but properly edited newsrooms.
+    # Direct feeds and publisher searches feed the same coverage pool.
     "right": {
         "Fox News": [
             "https://moxie.foxnews.com/google-publisher/latest.xml",
@@ -243,28 +142,8 @@ RSS_OUTLETS: dict[str, dict[str, list[str]]] = {
     },
 }
 
-# ---------------------------------------------------------------------------
-# OUTLET DOMAINS — edit freely; these are a starting point, not an endorsement.
-#
-# Grouped per commonly published media-bias references (AllSides / Ad Fontes
-# style ratings). Swap in whichever outlets you actually want to hear from.
-#
-# Bare domains only — no scheme, no "www.", no path. Run --list-sources to see
-# every outlet NewsAPI exposes, and --check-domains to confirm yours work.
-# ---------------------------------------------------------------------------
 OUTLETS_BY_LEAN: dict[str, list[str]] = {
-    # Every domain below was probed live and returns >=50 articles/week, which is
-    # roughly the floor for ever matching a specific story in a 48h window.
-    #
-    # Adding domains here is FREE: they are OR'd into a single `domains` param,
-    # so a lean costs one request no matter how many outlets it lists.
-    #
-    # NewsAPI's index is not the obvious one. Confirmed dead (0 results/week):
-    # nytimes.com, theguardian.com, reuters.com, msnbc.com, us.cnn.com,
-    # nationalreview.com, washingtontimes.com, pjmedia.com, bloomberg.com.
-    # Never trust /sources' domain strings — always re-check with --check-domains.
-    #
-    # Trailing comment = measured articles/week and approximate bias rating.
+    # Publisher-specific searches supplement the direct feeds.
     "left": [
         "huffpost.com",  # 293   Left
         "latimes.com",  # 291   Lean Left
@@ -278,9 +157,6 @@ OUTLETS_BY_LEAN: dict[str, list[str]] = {
         "time.com",  # 70    Center
         "apnews.com",  # 50    Center
     ],
-    # Note: NewsAPI's high-volume right-leaning options skew further right than
-    # the left/centre buckets, because the mainstream-right outlets (National
-    # Review, Washington Times, WSJ) are all absent from the index. Trim to taste.
     "right": [
         "nypost.com",  # 1674  Lean Right
         "foxnews.com",  # 712   Right
@@ -292,7 +168,6 @@ OUTLETS_BY_LEAN: dict[str, list[str]] = {
 }
 
 
-# --- Keyword extraction ------------------------------------------------------
 
 
 def fallback_terms(title: str) -> list[str]:
@@ -340,12 +215,7 @@ def format_term(term: str) -> str:
 
 
 def build_query(terms: list[str]) -> str:
-    """OR-join the terms so any one of them can match.
-
-    NewsAPI ANDs bare space-separated terms, so `Houthis Yemen pipeline`
-    requires all three and matches almost nothing. `Houthis OR Yemen` matches
-    either, which is what we want when hunting for coverage of one story.
-    """
+    """OR-join the terms so any one of them can match."""
     return " OR ".join(format_term(t) for t in terms[:MAX_QUERY_TERMS])
 
 
@@ -354,11 +224,7 @@ def extract_terms(
     deepseek_key: str | None,
     article: dict[str, Any],
 ) -> list[str]:
-    """Best-effort distinctive search terms for a story, preferring the model.
-
-    Returns raw terms, not a query string: NewsAPI needs them OR-joined into its
-    own syntax, while RSS matching just wants the plain strings.
-    """
+    """Best-effort distinctive search terms for a story, preferring the model."""
     title = (article.get("title") or "").strip()
 
     terms: list[str] | None = None
@@ -376,20 +242,11 @@ def extract_terms(
     return terms
 
 
-# --- RSS coverage ------------------------------------------------------------
 
-# Feed fetching and parsing live in rss_feeds.py, shared with fetch_world.py.
-# This file used to carry its own copy, which silently drifted: it served 140px
-# Guardian thumbnails long after the shared module had been fixed to request
-# full-size CDN crops.
 
 
 def fetch_rss_by_lean() -> dict[str, list[dict[str, Any]]]:
-    """Fetch every configured feed once, grouped by lean. Never raises.
-
-    Done once per run rather than once per story, so the cost is fixed no matter
-    how many stories need coverage.
-    """
+    """Fetch every configured feed once, grouped by lean."""
     out: dict[str, list[dict[str, Any]]] = {lean: [] for lean in LEANS}
     jobs = [
         (lean, outlet, url)
@@ -419,20 +276,7 @@ def match_score(item: dict[str, Any], terms: list[str]) -> int:
 def rss_coverage(
     items: list[dict[str, Any]], terms: list[str], story_title: str
 ) -> list[dict[str, Any]]:
-    """Feed items that are actually about this story, best-ranked first.
-
-    Three guards, each added because its absence produced visible nonsense:
-
-    1. The title must overlap the story headline by MIN_TITLE_OVERLAP content
-       words. Without it, a single broad term like "Israel" matched every Israel
-       headline on the wire, so a Lebanon story showed West Bank settlements.
-    2. There is no any-term fallback. It once caught a too-narrow primary, but
-       it did more harm than good: a Philippines ferry story fell back to
-       "Philippines" and pulled in an unrelated naval story. An empty lean is
-       honest; a lean padded with another story is misleading.
-    3. One frame per outlet, because an outlet filing three times filled the
-       whole group with a single perspective.
-    """
+    """Rank candidates that share enough headline terms for verification."""
     if not terms:
         return []
 
@@ -511,11 +355,7 @@ def verify_same_story(
     story_title: str,
     frames: list[tuple[str, dict[str, Any]]],
 ) -> list[int]:
-    """Which candidate frames cover the same specific story. Never raises.
-
-    Returns 1-based indices into `frames`. On any failure it keeps everything,
-    because silently dropping coverage is worse than keeping a loose match.
-    """
+    """Which candidate frames cover the same specific story."""
     everything = list(range(1, len(frames) + 1))
     if not api_key or len(frames) < 2:
         return everything
@@ -538,7 +378,6 @@ def verify_same_story(
     return everything if indices is None else indices
 
 
-# --- Output ------------------------------------------------------------------
 
 
 def report(stories: list[dict[str, Any]]) -> None:
@@ -570,7 +409,6 @@ def report(stories: list[dict[str, Any]]) -> None:
     print(f"Written to {OUTPUT_PATH}")
 
 
-# --- Entry point -------------------------------------------------------------
 
 
 def run_pipeline() -> None:
@@ -634,10 +472,7 @@ def run_pipeline() -> None:
             coverage[lean] = dedupe_by_url(hits)
             print(f"      {lean}: {len(coverage[lean])}")
 
-        # Semantic check. Word overlap cannot separate "same war" from "same
-        # story": "Ukraine drone strikes kill four" and "Moscow claims Ukraine
-        # planned to start a war" share ukraine and russia and nothing else. One
-        # judgement covers every candidate for this story.
+        # Title overlap alone cannot distinguish episodes within an ongoing conflict.
         frames: list[tuple[str, dict[str, Any]]] = [
             (lean, item) for lean in LEANS for item in coverage.get(lean, [])
         ]
@@ -657,13 +492,7 @@ def run_pipeline() -> None:
 
         story["coverage"] = coverage
 
-    # Which stories make the page, and in what order. Done once, here, so
-    # render.js and write_desk.py read the same answer instead of each
-    # re-implementing the rule in their own language.
-    #
-    # Topic labels come from one call that sees every candidate at once: the
-    # per-story classifier cannot be consistent with itself, since it never sees
-    # its own previous labels.
+    # Rank once so browser and notification use the same briefing.
     candidates = briefing_candidates(articles)
     assign_briefing_topics(candidates)
 
@@ -672,20 +501,12 @@ def run_pipeline() -> None:
     for rank, story in enumerate(briefing):
         story["briefing_rank"] = rank
 
-    # No degraded-run guard any more. It existed because NewsAPI rate-limits and
-    # a throttled run would have overwritten a good file with a thin one; the
-    # constraint went with the source. RSS has no meter, and a run that finds
-    # nothing now is a run that found nothing.
     save_json(articles, OUTPUT_PATH)
     report(stories)
     report_briefing(briefing)
 
 
 def main() -> None:
-    # No argument handling: the four diagnostic subcommands (--check-domains,
-    # --list-sources, --probe, --find-domain) all existed to interrogate
-    # NewsAPI's source index, and they went with it. This script now does one
-    # thing, which is the thing run.sh calls.
     run_pipeline()
 
 

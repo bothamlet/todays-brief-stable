@@ -1,7 +1,4 @@
-/**
- * Today's Brief — Swipe Navigation
- * Handles horizontal page swiping, dot navigation, and touch support.
- */
+/* Swipe, keyboard, and dot navigation. */
 (() => {
   const wrapper = document.getElementById("pagesWrapper");
   const frame = wrapper.closest(".phone-frame");
@@ -23,7 +20,6 @@
   const THRESHOLD = 36;
   const SNAP_DURATION = 280;
 
-  // --- Core navigation ---
 
   function goToPage(index, animate = true) {
     if (index < 0 || index >= pages.length) return;
@@ -48,19 +44,16 @@
     }
     wrapper.style.transform = `translateX(${offset}px)`;
 
-    // Update dots
     dots.forEach((dot, i) => {
       dot.classList.toggle("active", i === currentPage);
       if (i === currentPage) dot.setAttribute("aria-current", "page");
       else dot.removeAttribute("aria-current");
     });
 
-    // Trigger entrance animation
     requestAnimationFrame(() => {
       pages[currentPage].classList.add("in-view");
     });
 
-    // Update CSS accent variables for the current page
     const page = pages[currentPage];
     const accent = page.dataset.accent;
     const accentRgb = page.dataset.accentRgb;
@@ -68,12 +61,10 @@
     document.documentElement.style.setProperty("--accent-rgb", accentRgb);
   }
 
-  // --- Touch / pointer handling ---
 
   function onPointerDown(e) {
     if (e.touches && e.touches.length !== 1) return;
-    // Touches may begin on headlines or controls; movement distinguishes a swipe
-    // from a tap. Keep mouse clicks on those elements working normally.
+    // Movement distinguishes a swipe from a tap on a headline or control.
     if (!e.touches && e.target.closest("button, a, input")) return;
     if (e.target.closest("input, textarea, select, [contenteditable]")) return;
 
@@ -104,8 +95,7 @@
     const diffX = currentX - startX;
     const diffY = currentY - startY;
 
-    // Let small diagonal movements settle before choosing an axis. Until then,
-    // leave native scrolling and taps alone.
+    // Wait for a clear axis before taking over native scrolling.
     const x = Math.abs(diffX);
     const y = Math.abs(diffY);
     if (!directionDecided && Math.max(x, y) >= 10 &&
@@ -120,7 +110,6 @@
     if (e.cancelable) e.preventDefault();
     suppressClickUntil = performance.now() + 500;
 
-    // Apply resistance at edges
     dragOffset = diffX;
     if (
       (currentPage === 0 && dragOffset > 0) ||
@@ -152,8 +141,7 @@
     }
   }
 
-  // Touch events
-  // Include the overlaid navigation area as well as the story content.
+  // Listen on navigation controls as well as the story area.
   frame.addEventListener("touchstart", onPointerDown, { passive: true });
   frame.addEventListener("touchmove", onPointerMove, { passive: false });
   frame.addEventListener("touchend", onPointerUp);
@@ -168,18 +156,15 @@
     }
   }, true);
 
-  // Mouse events (for desktop testing)
   wrapper.addEventListener("mousedown", onPointerDown);
   window.addEventListener("mousemove", onPointerMove);
   window.addEventListener("mouseup", onPointerUp);
 
-  // --- Dot click navigation ---
   dots.forEach((dot, i) => {
     dot.addEventListener("click", () => goToPage(i));
     dot.style.cursor = "pointer";
   });
 
-  // --- Swipe hint click ---
   document.querySelectorAll(".page-swipe-hint").forEach((hint) => {
     hint.addEventListener("click", () => {
       if (currentPage < pages.length - 1) {
@@ -188,7 +173,6 @@
     });
   });
 
-  // --- Keyboard navigation ---
   document.addEventListener("keydown", (e) => {
     if (e.defaultPrevented || e.target.closest("input, textarea, select, [contenteditable]")) return;
     if (e.key === "ArrowRight") {
@@ -200,13 +184,11 @@
     }
   });
 
-  // --- Window resize: re-snap ---
   let resizeTimer;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => goToPage(currentPage, false), 100);
   });
 
-  // --- Init ---
   goToPage(0);
 })();

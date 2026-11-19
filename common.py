@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""
-common.py — shared plumbing for the news pipeline.
-
-Error exits, JSON input/output and timestamp parsing. Every step previously
-carried its own copy: `fail` was defined six times, `save` five, and
-`parse_timestamp` twice, so a fix in one never reached the others.
-"""
+"""Shared file, timestamp, and story helpers."""
 
 from __future__ import annotations
 
@@ -79,14 +73,7 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# Weekday and month names as Lithuanian feeds spell them in RFC 822. Kauno diena
-# sends "Ant, 15 Rug 2026 23:44:00 EEST", which email.utils reads as English and
-# rejects, so every one of its dates silently became None — the items were then
-# kept as "undated", sorted arbitrarily and could displace a newer story.
-#
-# "Rug" is mapped to September, not August, on the evidence: the items carrying it
-# were a day old in mid-September. Lithuanian abbreviates Rugpjutis (August) and
-# Rugsejis (September) alike, so the full "Rugp" is mapped separately to August.
+# Lithuanian RFC 822 date names are not accepted by the standard parser.
 _LT_DAYS = {
     "pir": "Mon",
     "ant": "Tue",
@@ -136,12 +123,7 @@ def _englishify_lithuanian(text: str) -> str:
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
-    """Parse an RSS (RFC 822) or Atom (ISO 8601) timestamp.
-
-    Feeds mix the two freely, and some carry neither, so this returns None rather
-    than raising. Lithuanian-language RFC 822 is handled too, because Kauno diena
-    and Diena publish it and would otherwise come through permanently undated.
-    """
+    """Parse RSS and Atom dates, including Lithuanian month names."""
     if not value:
         return None
 
@@ -180,11 +162,7 @@ def newest_first(stories: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def dedupe_by_url(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop exact repeats by URL, falling back to the title, preserving order.
-
-    Story-level merging — the same event reported by six outlets — is
-    deliberately not attempted here; that is cluster_stories' job.
-    """
+    """Drop exact repeats by URL, falling back to the title, preserving order."""
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
     for item in items:

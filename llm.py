@@ -1,20 +1,5 @@
 #!/usr/bin/env python3
-"""
-llm.py — one DeepSeek client for the whole pipeline.
-
-Four steps call the model and each had grown its own POST, its own key lookup
-and its own response parsing — five copies in total. That meant every hard-won
-fix had to be applied five times, and the two that mattered most were:
-
-* `thinking` must be disabled. deepseek-flash reasons by default, and reasoning
-  tokens are billed against `max_tokens`, so a long chain of thought silently
-  consumed the budget and returned empty content on roughly 40% of calls. The
-  first production run mis-classified 7 of 12 articles before this was found.
-* JSON mode occasionally returns empty content anyway, so one retry is cheap
-  insurance.
-
-Both now live here, once.
-"""
+"""Shared DeepSeek client for JSON responses."""
 
 from __future__ import annotations
 
@@ -73,12 +58,7 @@ def ask_json(
     session: requests.Session | None = None,
     attempts: int = MAX_ATTEMPTS,
 ) -> dict[str, Any] | None:
-    """One JSON-mode call. Returns the parsed object, or None on any failure.
-
-    Never raises: every caller treats a missing verdict as "carry on without it",
-    which beats dropping a story or an entire run. Pass `model` to override the
-    default for one step.
-    """
+    """One JSON-mode call."""
     key = api_key if api_key is not None else get_api_key()
     if not key:
         return None
@@ -87,8 +67,7 @@ def ask_json(
         "model": model or MODEL,
         "max_tokens": max_tokens,
         "temperature": temperature,
-        # See the module docstring: without this, long reasoning silently empties
-        # the response.
+        # Reasoning otherwise consumes the token budget before JSON is emitted.
         "thinking": {"type": "disabled"},
         "response_format": {"type": "json_object"},
         "messages": [

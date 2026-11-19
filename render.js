@@ -1,33 +1,15 @@
-/** Today's Brief — render the six phone sections from pipeline output or an offline bundle. */
+/* Render the issue from bundled data or pipeline JSON. */
 (() => {
   const DATA_URL = "data/world_covered.json";
   const BUILT_URL = "data/built.json";
-  // The category pages read the tracked list: same classification as
-  // world_filtered.json, plus the history the developing cue needs.
   const SECTION_URL = "data/world_tracked.json";
-  // The sports page has its own beat and its own file — see fetch_sports.py. It
-  // arrives already ranked and capped, so the page renders what it is handed.
   const SPORTS_URL = "data/sports.json";
-  // The tech page has its own beat too — see fetch_tech.py. It reads the world
-  // roster for its policy coverage and its own sources for everything else,
-  // because a page built only from general news desks is a page about AI
-  // legislation rather than about AI.
   const TECH_URL = "data/tech.json";
-  // The Lietuva page has its own beat too — Lithuanian newsrooms, not Lithuania as
-  // the world roster happens to report it. See fetch_lietuva.py.
   const LIETUVA_URL = "data/lietuva.json";
-  // Europe is the odd one out: it has no beat of its own, because the world
-  // pipeline already classifies a region on every story and nothing was reading
-  // it. See fetch_europe.py.
   const EUROPE_URL = "data/europe.json";
   const MAX_STORIES = 5; // "the five most important topics"
-  // Beat pages show five to eight stories; World uses the pipeline's ranked set.
-  // See capStories for what earns a slot past the fifth.
   const MAX_STORIES_NOTABLE = 8;
-  // How many newsrooms have to have carried a story independently for it to be
-  // worth a sixth slot. Three is a low bar and still rare: across the whole last
-  // run only three stories cleared it, because most reach the pipeline through a
-  // single feed. See isNotable for why coverage and not significance.
+  // A single-outlet story has no lean label.
   const NOTABLE_OUTLETS = 3;
   const MAX_SECTION_STORIES = 5;
   const MAX_PER_LEAN = 2; // frames shown per lean; keeps the arrows from feeling endless
@@ -49,10 +31,6 @@
       container: "techStories",
       title: "Tech",
       url: TECH_URL,
-      // Presorted, like Sports and Lietuva: fetch_tech.py already balanced the
-      // page across interests with a round-robin, and re-capping it here at five
-      // would undo that — the narrow interests are exactly the ones that lose a
-      // fight for a slot.
       presorted: true,
     },
     {
@@ -71,38 +49,16 @@
 
   const LEAN_LABEL = { left: "Left", center: "Centre", right: "Right" };
 
-  // Left first, then centre, then right. Grouped rather than interleaved: the
-  // arrows walk all the left framing, then all the centre, then all the right,
-  // so you can read one perspective through before moving to the next.
   const FLIP_ORDER = ["left", "center", "right"];
 
-  // ---------------------------------------------------------------- ranking
 
-  /**
-   * Stories ordered by the pipeline — see select_briefing in fetch_coverage.py.
-   *
-   * The ranking lives there, not here, so this page and the desk line cannot
-   * disagree about what the briefing contains. That rule used to be duplicated
-   * in two languages, and drifting apart is what made the desk line open with a
-   * ferry disaster that never reached the page.
-   */
+  /* Use the pipeline's rank so the page and notification agree. */
   function rankStories(rows) {
     return rows
       .filter((row) => Number.isInteger(row.briefing_rank))
       .sort((a, b) => a.briefing_rank - b.briefing_rank);
   }
 
-  /**
-   * Stories for one category page: most significant first, newest first within a
-   * tier.
-   *
-   * This rule is restated here rather than published by the pipeline, unlike the
-   * World page's briefing_rank. It is a two-key sort with no cross-story
-   * constraints — no topic caps, no lean balance — so the failure that made
-   * briefing_rank necessary cannot arise here: there is nothing for two
-   * implementations to drift apart about. If it ever grows a cap or a balance
-   * rule, it belongs in the pipeline beside select_briefing.
-   */
   const SIGNIFICANCE_RANK = { high: 0, medium: 1, low: 2 };
 
   function rankSections(rows, category) {
@@ -119,11 +75,8 @@
       .slice(0, MAX_SECTION_STORIES);
   }
 
-  /** Flatten a story's coverage into the frames the arrows step through. */
   function buildFrames(story) {
-    // A beat that gathered several newsrooms onto one event supplies its frames
-    // directly. Those are not political leanings — they are separate outlets
-    // agreeing on a fact — so there is no lean to label and no pill to show.
+    // Beat sections supply their own frames.
     if (Array.isArray(story.frames) && story.frames.length) {
       return story.frames.filter(
         (frame) => frame && (frame.title || frame.url),
@@ -133,7 +86,6 @@
     const coverage = story.coverage || {};
     const frames = [];
 
-    // Lean-major: every left frame, then every centre frame, then every right.
     for (const lean of FLIP_ORDER) {
       const items = coverage[lean] || [];
       for (
@@ -145,14 +97,11 @@
       }
     }
 
-    // Category pages have no gathered coverage, so the story's own outlet is the
-    // only frame. No lean, and so no pill: see the note at the top of this file.
     if (!frames.length) frames.push({ ...story, lean: null });
 
     return frames;
   }
 
-  // ------------------------------------------------------------ dom helpers
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -167,19 +116,6 @@
     return stamp.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
 
-  /**
-   * One of the page's data files, from wherever this copy of the page got it.
-   *
-   * Two ways, because the paper now travels two ways. Served over HTTP it
-   * fetches, exactly as it always has. Delivered as a single file — which is how
-   * it reaches a phone now, as a Telegram attachment — there is nothing to
-   * fetch: every browser refuses `fetch()` on a file:// URL, so a bundle carrying
-   * its own data would otherwise open to a masthead with no news under it.
-   *
-   * bundle.py writes the files into window.__BRIEF__ while it inlines everything
-   * else. A hosted page never defines that object, so the whole cost there is one
-   * property lookup that misses.
-   */
   async function loadJson(url) {
     const bundled = window.__BRIEF__;
     if (bundled && Object.hasOwn(bundled, url)) {
@@ -194,35 +130,20 @@
     }
   }
 
-  // ------------------------------------------------------------- card build
 
   function buildCard(story, frames, storyIndex) {
     const card = el("article", "news-card");
     card.dataset.storyIndex = String(storyIndex);
 
-    // Image — falls back to a neutral gradient when the feed carried none.
     const image = el("div", "card-image");
     const img = el("img", "card-image-img");
     img.alt = "";
     img.loading = "lazy";
-    // Several sports CDNs refuse to serve an image to a page on another origin.
-    // motorsport.com, sportando.basketball, espncdn.com and talkbasket.net all
-    // returned the file to a bare request and nothing at all to a browser that
-    // named a referrer — the card reserved its 16:9 box and painted an empty
-    // rectangle into it. Asking for no referrer gets the image and gives nothing
-    // away: the request still goes straight to the publisher's own CDN.
+    // Avoid sending a referrer to image hosts that reject hotlinks.
     img.referrerPolicy = "no-referrer";
     image.appendChild(img);
 
-    // A feed can declare an image that then fails to load — hotlink protection, an
-    // expired signed URL, a 404. Without this the card reserves a 16:9 box and
-    // paints nothing into it, which reads as a broken page rather than as a story
-    // that has no picture. Collapsing makes the two cases identical.
-    //
-    // pendingSrc guards the arrows: stepping to a frame with a good image must not
-    // be undone by the previous frame's image failing a moment later. The check is
-    // against the src the element currently holds, so a late error for a src we
-    // have already replaced is ignored.
+    // Ignore a delayed image error after the reader has changed frames.
     let pendingSrc = "";
     img.addEventListener("error", () => {
       if (pendingSrc && img.getAttribute("src") === pendingSrc) {
@@ -236,6 +157,7 @@
       developing = el("div", "card-developing");
       const ordinal = String(history.update_ordinal || "").trim();
       const days = Number(history.days_running) || 0;
+      // Only use the weekly label for recent stories.
       const elapsed = Date.now() - new Date(history.first_seen || "").getTime();
       const weekly = elapsed >= 0 && elapsed <= 7 * 864e5 ? " this week" : "";
       developing.textContent = `Developing — ${ordinal} update${weekly}`;
@@ -258,9 +180,7 @@
     const leanPill = el("span", "card-lean");
     sourceRow.append(source, leanPill);
 
-    // Arrows only when there is more than one framing to step through. Category
-    // pages carry a single outlet per story, and a lone arrow pair would be a
-    // control that does nothing when pressed.
+    // Show framing controls only for stories with multiple frames.
     let prev = null;
     let next = null;
     let dots = null;
@@ -279,10 +199,6 @@
       footer.append(sourceRow);
     }
 
-    // No meta line: "WORLD — 1 outlet" repeated on every card, and the count was
-    // misleading anyway — it tallied DISCOVERY outlets (a 21-feed roster) while
-    // the coverage below comes from the 6-outlet covering roster, so a card
-    // could read "1 outlet" above seven outlets' worth of framing.
     card.append(image);
     if (developing) card.appendChild(developing);
     card.append(headline, summary, footer);
@@ -295,7 +211,6 @@
         })
       : [];
 
-    // ------------------------------------------------------------ rendering
 
     let index = 0;
 
@@ -318,10 +233,6 @@
       leanPill.dataset.lean = lean || "";
       leanPill.hidden = !lean;
 
-      // No interest tag on the card. fetch_sports.py still writes interest_label —
-      // the run log uses it to show why a story was picked — but on the card it
-      // read as clutter: two grey labels side by side, the second dotted twice
-      // ("· NBA · THUNDER"), saying what the headline already said.
 
       const src = frame.urlToImage || lead.urlToImage || "";
       if (src) {
@@ -361,7 +272,6 @@
     return card;
   }
 
-  // ------------------------------------------------------------------- boot
 
   function showMessage(container, title, detail) {
     const box = el("div", "page-empty");
@@ -388,12 +298,7 @@
       return;
     }
 
-    // Try each picture in turn and take the first that actually loads. One attempt
-    // was not enough: the lead story usually has no picture at all — on Sports the
-    // first three interests come from Google, which cannot supply one — and the
-    // next candidate is often hotlink-protected (talkbasket.net answers 403), so a
-    // single try landed on the gradient most days. On failure nothing is set, so
-    // the stylesheet's gradient remains the floor.
+    // Try each header image until one loads.
     const accent = section.dataset.accentRgb || "14,116,144";
     let attempt = 0;
 
@@ -403,17 +308,6 @@
       const probe = new Image();
       probe.referrerPolicy = "no-referrer";
       probe.addEventListener("load", () => {
-        // Two layers over the photograph: the page's accent for colour and
-        // identity, and a plain darkening for contrast. The darkening is the one
-        // that matters. A title is legible when it is darker than the cream page,
-        // and the lead picture is often pale — a satellite view, an overcast
-        // street — which left LIETUVA as a washed grey ghost. Lightening the wash
-        // instead would help those and ruin the dark lead photos, so the bias is
-        // deliberately towards dark.
-        //
-        // Adapting per image would be better and is not possible: reading the
-        // pixels taints the canvas, because the photograph comes from another
-        // origin.
         title.style.backgroundImage =
           `linear-gradient(rgba(${accent},0.26), rgba(${accent},0.26)), ` +
           `linear-gradient(rgba(24,20,16,0.34), rgba(24,20,16,0.34)), ` +
@@ -428,30 +322,6 @@
     tryNext();
   }
 
-  /**
-   * At most five stories, and a few more only for the ones that earn it.
-   *
-   * A page is meant to be read. Ten cards is a scroll, and the thing being built
-   * here is a briefing — if it takes longer to get through than a coffee, it is
-   * the wrong length and gets skipped, which is the one outcome worse than
-   * missing a story.
-   *
-   * Two things extend it past five, and the second matters more than it looks:
-   *
-   *   Notability. A story the classifier called high significance, or that three
-   *   or more newsrooms carried independently, is worth a slot.
-   *
-   *   Representation. The last story of an interest is never dropped to make the
-   *   count. Not a nicety: capping Sports at five once silently deleted EuroLeague
-   *   and the international game, because a flat cap takes whatever comes first
-   *   and the interests at the end of the round-robin vanish. That was a real bug
-   *   and it is why the beats are ordered the way they are. A page that hides a
-   *   whole competition to save three cards is not shorter, it is missing.
-   *
-   * The beats are built so that five can cover everything: their round-robins
-   * walk a handful of coarse buckets rather than every interest they tag with, so
-   * the first five stories already represent each part of the subject.
-   */
   function capStories(stories) {
     if (stories.length <= MAX_STORIES) return stories;
 
@@ -463,9 +333,6 @@
     for (const story of stories.slice(MAX_STORIES)) {
       if (kept.length >= MAX_STORIES_NOTABLE) break;
       const interest = story.interest;
-      // Only ever the *first* story of an interest not yet on the page. A second
-      // rescue of the same interest would not be representation, it would be a
-      // loophole that lets any interest exceed the cap by publishing more.
       const unreached = interest && !interests.has(interest);
       if (unreached || isNotable(story)) {
         kept.push(story);
@@ -476,40 +343,19 @@
     return kept;
   }
 
-  /**
-   * Did this one earn a slot past the fifth?
-   *
-   * Coverage only, and deliberately not significance. The rule was meant to be
-   * "very good ones or much covered ones" and the first attempt used the
-   * classifier's `high` tier for the first half of that. It does not work: 70 of
-   * 231 stories come back high, and fetch_europe pre-filters its own rows to high,
-   * so on that page every story was exceptional and the cap moved from five to
-   * eight without anyone deciding anything.
-   *
-   * Three newsrooms independently carrying the same story is a fact about the
-   * world rather than an opinion about it, and it is rare: three stories in the
-   * whole of the last run. On a normal morning this page shows five stories.
-   */
   function isNotable(story) {
-    // Two shapes for the same idea: Europe carries `outlet_count` and the beats
-    // carry the outlets themselves.
     const outlets = Number(
       story.outlet_count || (story.outlets || []).length || 0,
     );
     return outlets >= NOTABLE_OUTLETS;
   }
 
-  /** Render one page's cards into its container. Returns how many it drew. */
   function renderSection(section, rows, container) {
     let stories;
     if (section.category) {
       stories = rankSections(rows, section.category);
     } else if (section.presorted) {
-      // Uncapped here on purpose, then capped below like everything else. The
-      // beats already ranked these and balanced them across their buckets, so the
-      // order is the pipeline's business; how many of them a page shows is this
-      // file's. Applying a flat slice here instead is what once deleted
-      // EuroLeague from Sports — see capStories.
+      // World renders the ranked list without the beat cap.
       stories = rows.filter((row) => row.title && row.url);
     } else {
       stories = rankStories(rows);
@@ -541,14 +387,6 @@
     return stories.length;
   }
 
-  /**
-   * When this page was compiled, from data/built.json (written by run.sh).
-   *
-   * Returns true when the date line was set, so the caller knows whether to fall
-   * back. The stamp comes from the run rather than from the newest story: a
-   * story's publish time is when a newsroom filed it, which is neither when this
-   * page was built nor any guide to whether the page is out of date.
-   */
   async function loadBuildStamp() {
     const stamp = document.getElementById("worldUpdated");
     const warnings = document.querySelectorAll("[data-stale]");
@@ -558,9 +396,7 @@
     let payloadDemo = false;
     try {
       const payload = await loadJson(BUILT_URL);
-      // Checked before constructing the date: `new Date(null)` is the epoch, not
-      // an invalid date, so a missing file would have dated the paper 1970 and
-      // tripped the stale badge rather than falling back.
+      // A missing build date must not parse as the Unix epoch.
       if (!payload || !payload.built_at) throw new Error("no stamp");
       payloadDemo = payload.demo === true;
       builtAt = new Date(payload.built_at);
@@ -569,8 +405,6 @@
       return false;
     }
 
-    // Two calls because en-GB omits the comma between weekday and date, and the
-    // masthead wants one: "Sunday, 13 September".
     const weekday = builtAt.toLocaleDateString("en-GB", { weekday: "long" });
     const dayMonth = builtAt.toLocaleDateString("en-GB", {
       day: "numeric",
@@ -578,7 +412,6 @@
     });
     stamp.textContent = payloadDemo ? "Sample issue · fictional headlines" : `${weekday}, ${dayMonth}`;
 
-    // Every section carries the same edition date and freshness warning.
     document.querySelectorAll("[data-stamp]").forEach((node) => {
       node.textContent = payloadDemo ? "Sample issue · fictional headlines" : `${weekday}, ${dayMonth}`;
     });
@@ -600,7 +433,7 @@
     });
     const stamped = await loadBuildStamp();
 
-    // Load each section independently so a missing source costs one section.
+    // Fail one section at a time if its source is missing.
     const urls = [...new Set(SECTIONS.map((s) => s.url))];
     const loaded = await Promise.all(urls.map((url) => loadJson(url)));
     const byUrl = new Map(urls.map((url, i) => [url, loaded[i]]));
@@ -623,7 +456,6 @@
     }
 
     if (stamp && !stamped) {
-      // No build stamp to show: the best available signal is the newest filing.
       const covered = byUrl.get(DATA_URL);
       if (shown) {
         const newest = (Array.isArray(covered) ? covered : [])

@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""
-textutil.py — headline text handling shared across the pipeline.
-
-This lives apart from any one step because four of them need it. It used to sit
-in cluster_stories.py, which meant fetch_coverage.py and track_stories.py had to
-import the entire clustering module — and its threshold, its union-find and its
-config — just to tokenise a headline.
-
-Two ideas run through everything here:
-
-* Content words, not all words. "the", "and" and "said" carry no identity.
-* Prefix-aware matching at 4+ characters, because headlines about one running
-  story seldom repeat a word exactly: "Houthi" meets "Houthis", "South" meets
-  "Southern", "Indonesia" meets "Indonesian".
-"""
+"""Shared headline text matching and formatting."""
 
 from __future__ import annotations
 
@@ -45,14 +31,7 @@ STOPWORDS = {
 
 
 def clean_title(title: str) -> str:
-    """Strip publisher noise: a trailing ' - Outlet' and a leading 'Outlet:'.
-
-    The leading strip is deliberately narrow — one word, no spaces. When it was
-    `[A-Z][^:]{1,25}:` it swallowed real headline text: "Ferry disaster: Indonesia
-    toll rises to 20" became "Indonesia toll rises to 20", losing the two words
-    that identify it. Clustering lost the overlap, and the day-to-day tracker
-    could not recognise the same ferry sinking two days running.
-    """
+    """Strip narrow leading and trailing publisher labels."""
     text = title or ""
     text = re.sub(r"\s+[-–—|]\s+[^-–—|]{2,30}$", "", text)  # trailing " - Outlet"
     text = re.sub(r"^[A-Z][A-Za-z0-9]{1,13}:\s*", "", text)  # leading "Outlet: "
@@ -75,11 +54,7 @@ def words_match(left: str, right: str) -> bool:
 
 
 def shared_words(left: Iterable[str], right: Iterable[str]) -> set[str]:
-    """Words the two sets share, prefix-aware.
-
-    Returns the words from `right` that `left` matches, so callers can score the
-    match by how distinctive those are.
-    """
+    """Words the two sets share, prefix-aware."""
     reference = set(right)
     return {
         other
@@ -90,12 +65,7 @@ def shared_words(left: Iterable[str], right: Iterable[str]) -> set[str]:
 
 
 def word_frequencies(titles: Iterable[str]) -> dict[str, int]:
-    """How many of the given headlines each content word appears in.
-
-    Used to weight overlap: "ferry" and "indonesia" identify a story, while
-    "dead" and "attack" appear in half the corpus and would merge unrelated
-    conflicts.
-    """
+    """Count the headlines containing each content word."""
     frequencies: dict[str, int] = {}
     for title in titles:
         for word in significant_tokens(title):
@@ -104,13 +74,7 @@ def word_frequencies(titles: Iterable[str]) -> dict[str, int]:
 
 
 def topic_key(label: str) -> str:
-    """Canonical form of a topic label.
-
-    The classifier returned both "indonesia ferry disaster" and "indonesia ferry
-    disasters" for one event, so an exact-match cap let the same story take two
-    briefing slots. Naive singularisation is enough at this length, and skipping
-    words ending in "ss" keeps "press" and "business" intact.
-    """
+    """Canonical form of a topic label."""
     return " ".join(
         word[:-1]
         if len(word) > 4 and word.endswith("s") and not word.endswith("ss")

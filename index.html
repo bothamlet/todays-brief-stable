@@ -23,21 +23,17 @@
       <button type="button" class="dot" data-color="gold" aria-label="Other"></button>
     </nav>
 
-    <!-- Pages container -->
     <div class="pages-wrapper" id="pagesWrapper">
 
-      <!-- ==================== 1. WORLD (wired to the pipeline) ==================== -->
       <section class="page" data-category="world" data-accent="#0e7490" data-accent-rgb="14,116,144">
         <div class="page-inner">
           <p class="page-label">TODAY'S BRIEF</p>
           <h1 class="page-title title-world">WORLD</h1>
           <p class="page-updated" id="worldUpdated">Loading…</p>
-          <!-- Previous editions carry their actual build date. -->
           <p class="page-stale" id="worldStale" data-stale hidden></p>
 
           <hr class="divider">
 
-          <!-- Cards are built by render.js from data/world_covered.json -->
           <div id="worldStories"></div>
 
           <button type="button" class="page-swipe-hint" aria-label="Next news section">
@@ -47,7 +43,6 @@
         </div>
       </section>
 
-      <!-- ==================== 2. EUROPE ==================== -->
       <section class="page" data-category="europe" data-accent="#4f46e5" data-accent-rgb="79,70,229">
         <div class="page-inner">
           <p class="page-label">TODAY'S BRIEF</p>
@@ -57,15 +52,10 @@
 
           <hr class="divider">
 
-          <!-- Filled by render.js from data/europe.json, built by fetch_europe.py.
-               Not a beat: the world pipeline already classifies a region on every
-               story, and this page reads the European ones — minus whatever the
-               World page is already leading with, so the two do not repeat. -->
           <div id="europeStories"></div>
         </div>
       </section>
 
-      <!-- ==================== 3. LIETUVA ==================== -->
       <section class="page" data-category="lietuva" data-accent="#b45309" data-accent-rgb="180,83,9">
         <div class="page-inner">
           <p class="page-label">TODAY'S BRIEF</p>
@@ -75,15 +65,10 @@
 
           <hr class="divider">
 
-          <!-- Filled by render.js from data/lietuva.json, built by fetch_lietuva.py:
-               LRT, Delfi, 15min, Lrytas, Kauno diena, Verslo žinios and the rest of
-               the Lithuanian press, rather than Lithuania as the world news roster
-               happens to report it. -->
           <div id="lietuvaStories"></div>
         </div>
       </section>
 
-      <!-- ==================== 4. TECH ==================== -->
       <section class="page" data-category="tech" data-accent="#2563eb" data-accent-rgb="37,99,235">
         <div class="page-inner">
           <p class="page-label">TODAY'S BRIEF</p>
@@ -93,12 +78,10 @@
 
           <hr class="divider">
 
-          <!-- The dedicated tech beat. -->
           <div id="techStories"></div>
         </div>
       </section>
 
-      <!-- ==================== 5. SPORTS ==================== -->
       <section class="page" data-category="sports" data-accent="#c2410c" data-accent-rgb="194,65,12">
         <div class="page-inner">
           <p class="page-label">TODAY'S BRIEF</p>
@@ -108,12 +91,10 @@
 
           <hr class="divider">
 
-          <!-- The dedicated sports beat. -->
           <div id="sportsStories"></div>
         </div>
       </section>
 
-      <!-- ==================== 6. OTHER ==================== -->
       <section class="page" data-category="other" data-accent="#a16207" data-accent-rgb="161,98,7">
         <div class="page-inner">
           <p class="page-label">TODAY'S BRIEF</p>
@@ -123,8 +104,6 @@
 
           <hr class="divider">
 
-          <!-- Filled by render.js from data/world_tracked.json, filtered to
-               classification.category === "Other". -->
           <div id="otherStories"></div>
         </div>
       </section>

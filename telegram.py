@@ -1,34 +1,5 @@
 #!/usr/bin/env python3
-"""
-telegram.py — send today's paper to a phone.
-
-Two messages, because they are two different things:
-
-    a photo   the front page, with the briefing in the caption. Readable from
-              the notification itself, which is the only part of a morning paper
-              most mornings need.
-    a document  the paper, one self-contained file. Opens offline, pages swipe,
-              the lean arrows work, the statistics render.
-
-The Bot API is a plain HTTPS interface — there is no SDK to install and no
-session to keep. Two credentials come from the environment:
-
-    TELEGRAM_BOT_TOKEN   from @BotFather. The only real secret here.
-    TELEGRAM_CHAT_ID     your own numeric id. Not a secret; it is in every URL
-                         you would paste into a support thread.
-
-Neither is ever printed. Not on success, not on failure, not in a traceback —
-requests puts the full URL in its exception messages, which for this API contains
-the token, so the error path below reports a status and a description instead.
-
-A missing token is not an error. The pipeline runs fine without a phone, and a
-paper that was built should not be thrown away because it could not be delivered.
-
-Usage:
-    TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... python3 telegram.py
-    python3 telegram.py --find-chat        # discover the chat id
-    python3 telegram.py --text-only        # skip the files, just the briefing
-"""
+"""Send the briefing and HTML issue through Telegram."""
 
 from __future__ import annotations
 
@@ -49,36 +20,19 @@ API = "https://api.telegram.org"
 PAPER = Path("_site/paper.html")
 FRONT_PAGE = Path("_site/frontpage.jpg")
 
-# Where the credentials live when they are not in the environment: outside the
-# repository, mode 600, and deliberately not in the systemd unit — unit files are
-# world-readable on many systems, and a bot token in one is a bot token you end up
-# revoking. A token committed to git is the same mistake with a longer memory.
-#
-# One file, read in one place. deliver.sh does not source it and the timer does
-# not set it, so there is no second copy to fall out of date.
+# Keep credentials outside the checkout.
 ENV_FILE = Path.home() / ".config" / "todays-brief" / "env"
 
-# How many headlines the caption carries. Telegram shows a photo caption in full
-# rather than collapsing it, so this is bounded by the caption limit rather than
-# by how much fits on a lock screen.
 MAX_HEADLINES = 3
 
-# Telegram's caption limit. Written down because exceeding it is a 400 and the
-# whole message is lost, not truncated.
+# Telegram rejects captions beyond its character limit.
 CAPTION_LIMIT = 1024
 
 TIMEOUT = 60.0
 
 
 def env(name: str) -> str:
-    """A setting, from the environment or from the credentials file.
-
-    The file wins nothing — an exported variable takes precedence, so a one-off
-    run with `TELEGRAM_CHAT_ID=... python3 telegram.py` does what it looks like it
-    does. Read here rather than by whichever shell happens to invoke this, because
-    deliver.sh, the systemd timer and a human at a prompt are three callers and
-    exactly one of them remembers to source anything.
-    """
+    """A setting, from the environment or from the credentials file."""
     value = os.environ.get(name, "").strip()
     if value:
         return value
@@ -94,17 +48,7 @@ def env(name: str) -> str:
 
 
 def find_chat(token: str) -> int:
-    """Print every chat that has messaged this bot, and return how many.
-
-    This exists because the obvious ways to find a chat id do not work. The
-    number in a Telegram Web URL is version-dependent and has broken more than
-    once, and the clients do not agree on whether a private chat's id appears
-    there at all. The API, by contrast, simply says what it saw.
-
-    It only says what it saw, though — Telegram retains updates for about a day
-    and a bot that has never been messaged has nothing to report. Hence the empty
-    case being spelled out rather than reported as a failure.
-    """
+    """Print every chat that has messaged this bot, and return how many."""
     try:
         response = requests.get(f"{API}/bot{token}/getUpdates", timeout=TIMEOUT)
         payload = response.json()
@@ -175,13 +119,7 @@ def headline_lines(limit: int = MAX_HEADLINES) -> list[str]:
 
 
 def caption(stale: bool = False) -> str:
-    """The photo's caption: how many, then the first few by name.
-
-    A stale delivery says so first. The paper itself carries a stale badge, but
-    only once it has been opened — and the entire purpose of this message is to be
-    readable without opening anything. Learning that the run failed later, from a
-    date under the masthead, is learning it in the wrong order.
-    """
+    """The photo's caption: how many, then the first few by name."""
     stories = load_json(Path("data/world_covered.json"))
     total = (
         len([r for r in stories if isinstance(r, dict) and type(r.get("briefing_rank")) is int])
@@ -197,19 +135,11 @@ def caption(stale: bool = False) -> str:
     lines += [f"• {title}" for title in headline_lines()]
     text = "\n".join(lines).strip() or "Today's paper is ready."
 
-    # Truncated rather than rejected: a headline long enough to blow the caption
-    # limit is a headline whose beginning is still the part that matters.
     return text if len(text) <= CAPTION_LIMIT else text[: CAPTION_LIMIT - 1] + "…"
 
 
 def post(token: str, method: str, *, data: dict[str, Any], files: dict[str, Any] | None = None) -> bool:
-    """One Bot API call. Returns whether it worked, and says so either way.
-
-    Errors are reported by status and description only. requests puts the request
-    URL into its own exception messages, and for this API the URL contains the bot
-    token — so an unhandled traceback here would print the credential into
-    whatever log this runs under.
-    """
+    """Call the Bot API without exposing the token in errors."""
     try:
         response = requests.post(
             f"{API}/bot{token}/{method}",
@@ -224,8 +154,7 @@ def post(token: str, method: str, *, data: dict[str, Any], files: dict[str, Any]
     if response.status_code == 200:
         return True
 
-    # Telegram explains itself in `description`; nothing else about the response
-    # is worth reproducing.
+    # Do not log raw responses or request URLs.
     try:
         detail = json.loads(response.text).get("description", "")
     except ValueError:
@@ -235,13 +164,7 @@ def post(token: str, method: str, *, data: dict[str, Any], files: dict[str, Any]
 
 
 def send_briefing(token: str, chat: str, stale: bool) -> bool:
-    """The briefing, as a photo caption if there is a photo and a message if not.
-
-    Not skipped when the picture is missing. The briefing is the part that can be
-    read without opening anything, so a failed screenshot should cost the picture
-    and not the headlines — which is what would happen if the caption only ever
-    rode along attached to an image.
-    """
+    """The briefing, as a photo caption if there is a photo and a message if not."""
     text = caption(stale)
 
     if FRONT_PAGE.is_file():
@@ -258,25 +181,12 @@ def send_briefing(token: str, chat: str, stale: bool) -> bool:
 
 
 def document_fields(chat: str) -> dict[str, str]:
-    """The form fields for sendDocument — everything except the file itself.
-
-    `document` must not be among them. A file field that is also a plain string
-    field is not a harmless duplicate: Telegram reads the string as a file_id or a
-    URL, ignores the upload in the same request, and answers "failed to get HTTP
-    URL content" — an error about a URL nobody sent, which is a riddle to debug
-    from the message alone.
-
-    Split out so that constraint can be tested without talking to Telegram.
-    """
+    """Build form fields separately from the uploaded document."""
     return {"chat_id": chat}
 
 
 def send_paper(token: str, chat: str) -> bool:
-    """Send the paper as a document.
-
-    Dated, because a chat fills with a paper a day and "paper.html" a hundred
-    times over is a folder nobody can find anything in.
-    """
+    """Send the paper as a document."""
     if not PAPER.is_file():
         print(f"  telegram: {PAPER} is missing — run bundle.py first")
         return False
@@ -333,16 +243,13 @@ def deliver(token: str, chat: str, stale: bool) -> bool:
 
 
 def main() -> int:
-    # Flags are read here rather than at import, so importing this module in a
-    # test does not depend on what the test runner was called with.
     stale = "--stale" in sys.argv or is_stale()
     text_only = "--text-only" in sys.argv
 
     token = env("TELEGRAM_BOT_TOKEN")
     chat = env("TELEGRAM_CHAT_ID")
 
-    # Setting up, rather than delivering. Handled before the credential check
-    # because the whole point is to find the chat id that is missing.
+    # Allow chat discovery before a chat ID is configured.
     if "--find-chat" in sys.argv:
         if not token:
             print("TELEGRAM_BOT_TOKEN is not set, so there is nothing to ask.")
@@ -361,8 +268,6 @@ def main() -> int:
             if not value
         ]
         print(f"{' and '.join(missing)} not set — skipping delivery.")
-        # Only worth suggesting when the chat id is the missing half; a missing
-        # token is not something this command can help with.
         if not chat and token:
             print("Find it with:  python3 telegram.py --find-chat")
         return 3
